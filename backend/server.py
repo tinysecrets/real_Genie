@@ -13,7 +13,6 @@ from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 
 ROOT_DIR = Path(__file__).parent
@@ -30,9 +29,9 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')
-MODEL_PROVIDER = "anthropic"
-MODEL_NAME = "claude-sonnet-4-5-20250929"
+EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')  # kept for backwards compat, unused with Ollama
+OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
+MODEL_NAME = os.environ.get('OLLAMA_MODEL', 'dolphin3')
 
 EMERGENT_AUTH_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 SESSION_DAYS = 7
@@ -175,24 +174,38 @@ async def get_chat_history(user_id: str, conversation_id: str) -> List[dict]:
     return msgs
 
 
+async def ollama_chat(system: str, user_text: str) -> str:
+    """Single-turn call to local Ollama. Returns the assistant's text."""
+    async with httpx.AsyncClient(timeout=180.0) as http:
+        r = await http.post(
+            f"{OLLAMA_URL}/api/chat",
+            json={
+                "model": MODEL_NAME,
+                "stream": False,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_text},
+                ],
+            },
+        )
+        r.raise_for_status()
+        data = r.json()
+        return data.get("message", {}).get("content", "")
+
+
 async def extract_memories_async(user_id: str, user_text: str, assistant_text: str):
     try:
-        extractor = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"memory-extractor-{uuid.uuid4()}",
-            system_message=(
-                "You extract durable facts about a user from a single exchange. "
-                "Return ONLY a JSON array of short fact strings (max 12 words each). "
-                "Facts must be about the USER (preferences, identity, projects, relationships, goals, habits). "
-                "Not about the assistant. Not about general topics. "
-                'If nothing worth remembering, return []. '
-                'Examples: ["Prefers concise answers", "Works as a nurse in Seattle", "Has a dog named Moss"]. '
-                "Never invent. Only extract what's stated or strongly implied."
-            ),
-        ).with_model("anthropic", "claude-haiku-4-5-20251001")
-
+        system = (
+            "You extract durable facts about a user from a single exchange. "
+            "Return ONLY a JSON array of short fact strings (max 12 words each). "
+            "Facts must be about the USER (preferences, identity, projects, relationships, goals, habits). "
+            "Not about the assistant. Not about general topics. "
+            'If nothing worth remembering, return []. '
+            'Examples: ["Prefers concise answers", "Works as a nurse in Seattle", "Has a dog named Moss"]. '
+            "Never invent. Only extract what's stated or strongly implied."
+        )
         prompt = f"User said: {user_text}\n\nAssistant replied: {assistant_text}\n\nExtract user facts as JSON array."
-        response = await extractor.send_message(UserMessage(text=prompt))
+        response = await ollama_chat(system, prompt)
 
         text = response.strip()
         start = text.find('[')
@@ -302,7 +315,7 @@ async def auth_logout(request: Request, response: Response, authorization: Optio
 # ---------- App Routes ----------
 @api_router.get("/")
 async def root():
-    return {"message": "Ember is here.", "model": f"{MODEL_PROVIDER}/{MODEL_NAME}"}
+    return {"message": "Ember is here.", "model": MODEL_NAME}
 
 
 # Conversations
@@ -355,9 +368,6 @@ async def get_messages(conv_id: str, user: User = Depends(get_user_from_request)
 # Chat
 @api_router.post("/chat")
 async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(500, "LLM key not configured")
-
     conv_id = req.conversation_id
     if conv_id:
         conv = await db.conversations.find_one({"id": conv_id, "user_id": user.user_id}, {"_id": 0})
@@ -382,14 +392,8 @@ async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
         )
         system_prompt += f"\n\n--- This conversation so far ---\n{transcript}"
 
-    chat_client = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"{conv_id}-{uuid.uuid4().hex[:8]}",  # fresh session per call
-        system_message=system_prompt,
-    ).with_model(MODEL_PROVIDER, MODEL_NAME)
-
     try:
-        response_text = await chat_client.send_message(UserMessage(text=req.message))
+        response_text = await ollama_chat(system_prompt, req.message)
     except Exception as e:
         logger.error(f"LLM error: {e}")
         raise HTTPException(500, f"LLM call failed: {str(e)}")
