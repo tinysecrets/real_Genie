@@ -32,6 +32,8 @@ db = client[os.environ['DB_NAME']]
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')  # kept for backwards compat, unused with Ollama
 OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
 MODEL_NAME = os.environ.get('OLLAMA_MODEL', 'dolphin3')
+COOKIE_SECURE = os.environ.get('COOKIE_SECURE', 'true').lower() == 'true'
+COOKIE_SAMESITE = os.environ.get('COOKIE_SAMESITE', 'none')
 
 EMERGENT_AUTH_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 SESSION_DAYS = 7
@@ -174,20 +176,20 @@ async def get_chat_history(user_id: str, conversation_id: str) -> List[dict]:
     return msgs
 
 
-async def ollama_chat(system: str, user_text: str) -> str:
+async def ollama_chat(system: str, user_text: str, json_mode: bool = False) -> str:
     """Single-turn call to local Ollama. Returns the assistant's text."""
+    payload = {
+        "model": MODEL_NAME,
+        "stream": False,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_text},
+        ],
+    }
+    if json_mode:
+        payload["format"] = "json"
     async with httpx.AsyncClient(timeout=180.0) as http:
-        r = await http.post(
-            f"{OLLAMA_URL}/api/chat",
-            json={
-                "model": MODEL_NAME,
-                "stream": False,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user_text},
-                ],
-            },
-        )
+        r = await http.post(f"{OLLAMA_URL}/api/chat", json=payload)
         r.raise_for_status()
         data = r.json()
         return data.get("message", {}).get("content", "")
@@ -205,7 +207,7 @@ async def extract_memories_async(user_id: str, user_text: str, assistant_text: s
             "Never invent. Only extract what's stated or strongly implied."
         )
         prompt = f"User said: {user_text}\n\nAssistant replied: {assistant_text}\n\nExtract user facts as JSON array."
-        response = await ollama_chat(system, prompt)
+        response = await ollama_chat(system, prompt, json_mode=True)
 
         text = response.strip()
         start = text.find('[')
@@ -287,8 +289,8 @@ async def auth_session(body: SessionExchangeRequest, response: Response):
         value=session_token,
         max_age=SESSION_DAYS * 24 * 60 * 60,
         httponly=True,
-        secure=True,
-        samesite="none",
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
         path="/",
     )
 
@@ -308,7 +310,7 @@ async def auth_logout(request: Request, response: Response, authorization: Optio
         token = authorization.split(" ", 1)[1].strip()
     if token:
         await db.user_sessions.delete_one({"session_token": token})
-    response.delete_cookie("session_token", path="/", samesite="none", secure=True)
+    response.delete_cookie("session_token", path="/", samesite=COOKIE_SAMESITE, secure=COOKIE_SECURE)
     return {"ok": True}
 
 
@@ -374,8 +376,9 @@ async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
         if not conv:
             raise HTTPException(404, "Conversation not found")
     else:
-        conv = Conversation(user_id=user.user_id).model_dump()
-        await db.conversations.insert_one(conv)
+        conv_model = Conversation(user_id=user.user_id)
+        await db.conversations.insert_one(conv_model.model_dump())
+        conv = conv_model.model_dump()
         conv_id = conv["id"]
 
     user_msg = Message(user_id=user.user_id, conversation_id=conv_id, role="user", content=req.message)
