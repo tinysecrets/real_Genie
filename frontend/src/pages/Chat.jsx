@@ -4,9 +4,10 @@ import remarkGfm from "remark-gfm";
 import {
   Plus, Send, Trash2, Pencil, Check, X, Menu, Brain,
   Copy, CopyCheck, MessageSquare, Sparkles, Settings, LogOut,
-  Mic, MicOff, Volume2,
+  Mic, MicOff, Volume2, Wand2,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { VoiceCapture } from "@/lib/voice";
 import SettingsDrawer from "@/components/SettingsDrawer";
 import GenieMode from "@/components/GenieMode";
 
@@ -367,8 +368,9 @@ function MemoryPanel({ memories, onAdd, onDelete, onEdit, mobileOpen, onCloseMob
 function ChatInput({ onSend, disabled }) {
   const [value, setValue] = useState("");
   const [recording, setRecording] = useState(false);
+  const [busyMic, setBusyMic] = useState(false);
   const taRef = useRef(null);
-  const recogRef = useRef(null);
+  const voiceRef = useRef(null);
 
   useEffect(() => {
     const ta = taRef.current;
@@ -384,34 +386,31 @@ function ChatInput({ onSend, disabled }) {
     setValue("");
   };
 
-  const toggleMic = () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
+  const toggleMic = async () => {
+    if (busyMic) return;
+    if (!voiceRef.current) voiceRef.current = new VoiceCapture();
+    if (!voiceRef.current.isSupported()) return;
+
     if (recording) {
-      try { recogRef.current?.stop(); } catch {}
-      return;
-    }
-    const r = new SR();
-    r.lang = "en-US";
-    r.continuous = false;
-    r.interimResults = true;
-    let finalText = "";
-    r.onresult = (e) => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalText += t;
-        else interim += t;
+      setBusyMic(true);
+      try {
+        const text = await voiceRef.current.stopAndTranscribe();
+        if (text) setValue((v) => (v ? v + " " + text : text));
+      } finally {
+        setRecording(false);
+        setBusyMic(false);
       }
-      setValue((finalText + interim).trim());
-    };
-    r.onend = () => setRecording(false);
-    r.onerror = () => setRecording(false);
-    recogRef.current = r;
-    try { r.start(); setRecording(true); } catch { setRecording(false); }
+    } else {
+      try {
+        await voiceRef.current.start();
+        setRecording(true);
+      } catch {
+        setRecording(false);
+      }
+    }
   };
 
-  const supportsMic = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
+  const supportsMic = typeof window !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
 
   return (
     <div className="max-w-3xl mx-auto w-full px-4 md:px-8 pb-6 pt-2">
@@ -435,13 +434,14 @@ function ChatInput({ onSend, disabled }) {
           <button
             data-testid="mic-button"
             onClick={toggleMic}
-            disabled={disabled}
+            disabled={disabled || busyMic}
             className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 m-1 transition-all ${
               recording
                 ? "bg-[#D4AF37] text-[#0B0B0E] listen-pulse"
                 : "bg-transparent border border-[#3A3220] text-[#9A8868] hover:text-[#F0CB58] hover:border-[#D4AF37]"
             }`}
-            aria-label={recording ? "Stop recording" : "Voice input"}
+            aria-label={recording ? "Stop and transcribe" : "Voice input (Vosk, offline)"}
+            title={recording ? "tap to stop & transcribe" : "tap to talk"}
           >
             {recording ? <Mic size={16} /> : <MicOff size={16} />}
           </button>
@@ -475,6 +475,7 @@ export default function Chat({ user, onLogout }) {
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [genieOpen, setGenieOpen] = useState(false);
+  const [genieInitialPane, setGenieInitialPane] = useState("transcript");
   const [persona, setPersona] = useState("");
   const [defaultPersona, setDefaultPersona] = useState("");
   const scrollRef = useRef(null);
@@ -657,14 +658,24 @@ export default function Chat({ user, onLogout }) {
           </button>
         </div>
 
-        {/* Genie quick-launch */}
-        <button
-          data-testid="open-genie-fab"
-          onClick={() => setGenieOpen(true)}
-          className="absolute top-4 right-6 z-20 hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-b from-[#D4AF37] to-[#A88A28] text-[#0B0B0E] hover:from-[#F0CB58] hover:to-[#D4AF37] font-body text-xs font-medium shadow-[0_0_22px_rgba(212,175,55,0.4)]"
-        >
-          <Sparkles size={13} /> Genie Mode
-        </button>
+        {/* Genie quick-launch + Task launcher */}
+        <div className="absolute top-4 right-6 z-20 hidden md:flex items-center gap-2">
+          <button
+            data-testid="open-task-fab"
+            onClick={() => { setGenieInitialPane("agent"); setGenieOpen(true); }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-transparent border border-[#3A3220] text-[#F5E9C8] hover:border-[#D4AF37] hover:text-[#F0CB58] font-body text-xs font-medium"
+            title="Give Ember a task — it'll do it for you"
+          >
+            <Wand2 size={13} /> Task
+          </button>
+          <button
+            data-testid="open-genie-fab"
+            onClick={() => { setGenieInitialPane("transcript"); setGenieOpen(true); }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-b from-[#D4AF37] to-[#A88A28] text-[#0B0B0E] hover:from-[#F0CB58] hover:to-[#D4AF37] font-body text-xs font-medium shadow-[0_0_22px_rgba(212,175,55,0.4)]"
+          >
+            <Sparkles size={13} /> Genie Mode
+          </button>
+        </div>
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
           {messages.length === 0 && !sending ? (
@@ -721,6 +732,7 @@ export default function Chat({ user, onLogout }) {
         conversationId={currentId}
         setConversationId={setCurrentId}
         onAssistantMessage={onGenieAssistant}
+        initialPane={genieInitialPane}
       />
     </div>
   );

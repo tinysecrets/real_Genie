@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { X, Mic, MicOff, Monitor, MonitorOff, Volume2, VolumeX, Sparkles, Camera, MessageCircle, Hand } from "lucide-react";
 import { api } from "@/lib/api";
+import { VoiceCapture } from "@/lib/voice";
 import AgentPanel from "@/components/AgentPanel";
 
 /**
@@ -9,7 +10,7 @@ import AgentPanel from "@/components/AgentPanel";
  *  - Voice out: SpeechSynthesis (free, browser-native)
  *  - Screen share: getDisplayMedia + canvas snapshot → /api/vision
  */
-export default function GenieMode({ open, onClose, onAssistantMessage, conversationId, setConversationId }) {
+export default function GenieMode({ open, onClose, onAssistantMessage, conversationId, setConversationId, initialPane = "transcript" }) {
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [thinking, setThinking] = useState(false);
@@ -18,61 +19,66 @@ export default function GenieMode({ open, onClose, onAssistantMessage, conversat
   const [voiceOn, setVoiceOn] = useState(true);
   const [screenOn, setScreenOn] = useState(false);
   const [error, setError] = useState("");
-  const [rightPane, setRightPane] = useState("transcript"); // 'transcript' | 'agent'
+  const [rightPane, setRightPane] = useState(initialPane); // 'transcript' | 'agent'
 
-  const recogRef = useRef(null);
+  // when the launcher passes a different initialPane, honor it on each open
+  useEffect(() => { if (open) setRightPane(initialPane); }, [open, initialPane]);
+
   const streamRef = useRef(null);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const restartRef = useRef(true);   // auto-restart STT after each utterance
+  const voiceCapRef = useRef(null);
+  const loopRef = useRef(true);   // continuous-listen loop control
+  const CHUNK_MS = 4500;          // record this long, transcribe, restart
 
-  // ---------- Speech Recognition (voice IN) ----------
-  const setupRecognition = useCallback(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      setError("Voice input isn't supported in this browser. Try Chrome.");
-      return null;
+  // ---------- Voice IN (Vosk via /api/transcribe — fully offline) ----------
+  const startListenLoop = useCallback(async () => {
+    if (!voiceCapRef.current) voiceCapRef.current = new VoiceCapture();
+    if (!voiceCapRef.current.isSupported()) {
+      setError("Microphone capture not supported in this browser.");
+      return;
     }
-    const r = new SR();
-    r.lang = "en-US";
-    r.continuous = false;        // one utterance at a time, then we restart
-    r.interimResults = true;
+    loopRef.current = true;
+    setListening(true);
 
-    r.onresult = (e) => {
-      let finalText = "";
-      let interimText = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalText += t;
-        else interimText += t;
-      }
-      setInterim(interimText);
-      if (finalText.trim()) {
+    const tick = async () => {
+      if (!loopRef.current) { setListening(false); return; }
+      try {
+        await voiceCapRef.current.start();
+        setInterim("listening…");
+        await new Promise((r) => setTimeout(r, CHUNK_MS));
+        if (!loopRef.current) {
+          voiceCapRef.current.abort();
+          setInterim("");
+          setListening(false);
+          return;
+        }
+        const text = await voiceCapRef.current.stopAndTranscribe();
         setInterim("");
-        sendUtterance(finalText.trim());
+        if (text && text.length > 1) {
+          sendUtterance(text);
+        }
+      } catch (e) {
+        if (String(e?.name || "").includes("NotAllowed")) {
+          setError("Microphone permission denied.");
+          loopRef.current = false;
+          setListening(false);
+          return;
+        }
       }
+      // small gap before next chunk
+      setTimeout(tick, 200);
     };
-
-    r.onerror = (e) => {
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        setError("Microphone permission denied.");
-        setListening(false);
-        restartRef.current = false;
-      }
-    };
-
-    r.onend = () => {
-      // auto-restart while genie is open and voice is on
-      if (restartRef.current && voiceOn) {
-        try { r.start(); } catch {}
-      } else {
-        setListening(false);
-      }
-    };
-
-    return r;
+    tick();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voiceOn]);
+  }, []);
+
+  const stopListenLoop = () => {
+    loopRef.current = false;
+    voiceCapRef.current?.abort();
+    setListening(false);
+    setInterim("");
+  };
 
   // ---------- Speech Synthesis (voice OUT) ----------
   const speak = (text) => {
@@ -175,20 +181,12 @@ export default function GenieMode({ open, onClose, onAssistantMessage, conversat
   // ---------- Lifecycle ----------
   useEffect(() => {
     if (!open) return;
-    restartRef.current = true;
-    if (voiceOn) {
-      const r = setupRecognition();
-      if (r) {
-        recogRef.current = r;
-        try { r.start(); setListening(true); } catch {}
-      }
-    }
+    if (voiceOn) startListenLoop();
     // load voices early (Chrome quirk)
     if ("speechSynthesis" in window) window.speechSynthesis.getVoices();
 
     return () => {
-      restartRef.current = false;
-      try { recogRef.current?.stop(); } catch {}
+      stopListenLoop();
       if ("speechSynthesis" in window) window.speechSynthesis.cancel();
       stopScreen();
     };
@@ -198,18 +196,10 @@ export default function GenieMode({ open, onClose, onAssistantMessage, conversat
   // toggle voice on/off mid-session
   useEffect(() => {
     if (!open) return;
-    if (voiceOn) {
-      if (!recogRef.current) {
-        const r = setupRecognition();
-        if (r) recogRef.current = r;
-      }
-      restartRef.current = true;
-      try { recogRef.current?.start(); setListening(true); } catch {}
-    } else {
-      restartRef.current = false;
-      try { recogRef.current?.stop(); } catch {}
+    if (voiceOn) startListenLoop();
+    else {
+      stopListenLoop();
       window.speechSynthesis?.cancel();
-      setListening(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [voiceOn]);

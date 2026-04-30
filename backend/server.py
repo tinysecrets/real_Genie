@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Cookie, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Cookie, Header, UploadFile, File
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 
 from agent import EmberAgent
+from transcribe import transcribe_bytes
 
 
 
@@ -468,6 +469,15 @@ async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
 
 
 # Vision (Genie Mode screen share)
+@api_router.post("/transcribe")
+async def transcribe(audio: UploadFile = File(...), user: User = Depends(get_user_from_request)):
+    raw = await audio.read()
+    if not raw:
+        return {"text": ""}
+    text = await transcribe_bytes(raw)
+    return {"text": text}
+
+
 @api_router.post("/vision")
 async def vision(req: VisionRequest, user: User = Depends(get_user_from_request)):
     conv_id = req.conversation_id
