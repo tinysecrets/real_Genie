@@ -13,6 +13,8 @@ from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
 
+from agent import EmberAgent
+
 
 
 ROOT_DIR = Path(__file__).parent
@@ -43,6 +45,9 @@ DEFAULT_PERSONA = (
     "Honest. Direct. Warm but never sycophantic. Pushes back when wrong, "
     "admits uncertainty plainly, respects the user's time."
 )
+
+# Single shared browser-agent for this user (single-user app)
+agent = EmberAgent(ollama_url=OLLAMA_URL, text_model=MODEL_NAME, vision_model=VISION_MODEL)
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -90,6 +95,23 @@ class VisionRequest(BaseModel):
     conversation_id: Optional[str] = None
     message: str
     image: str  # data URL or raw base64
+
+
+class AgentGoto(BaseModel):
+    url: str
+
+
+class AgentAct(BaseModel):
+    instruction: str
+
+
+class AgentRun(BaseModel):
+    goal: str
+    max_steps: int = 8
+
+
+class AgentExtract(BaseModel):
+    instruction: str
 
 
 class RenameRequest(BaseModel):
@@ -493,6 +515,56 @@ async def vision(req: VisionRequest, user: User = Depends(get_user_from_request)
         "conversation_id": conv_id,
         "user_message": user_msg.model_dump(),
         "assistant_message": assistant_msg.model_dump(),
+    }
+
+
+# Browser Agent (Genie's hands)
+@api_router.post("/agent/start")
+async def agent_start(user: User = Depends(get_user_from_request)):
+    await agent.start()
+    return {"ok": True, "running": agent.running, "url": await agent.page_url()}
+
+
+@api_router.post("/agent/stop")
+async def agent_stop(user: User = Depends(get_user_from_request)):
+    await agent.stop()
+    return {"ok": True, "running": agent.running}
+
+
+@api_router.post("/agent/goto")
+async def agent_goto(body: AgentGoto, user: User = Depends(get_user_from_request)):
+    return await agent.goto(body.url)
+
+
+@api_router.post("/agent/act")
+async def agent_act(body: AgentAct, user: User = Depends(get_user_from_request)):
+    return await agent.act(body.instruction)
+
+
+@api_router.post("/agent/extract")
+async def agent_extract(body: AgentExtract, user: User = Depends(get_user_from_request)):
+    return await agent.extract(body.instruction)
+
+
+@api_router.post("/agent/run")
+async def agent_run(body: AgentRun, user: User = Depends(get_user_from_request)):
+    return await agent.run(body.goal, max_steps=body.max_steps)
+
+
+@api_router.get("/agent/screenshot")
+async def agent_screenshot(user: User = Depends(get_user_from_request)):
+    if not agent.running:
+        raise HTTPException(409, "Agent not running")
+    img = await agent.screenshot()
+    return {"image": img, "url": await agent.page_url()}
+
+
+@api_router.get("/agent/status")
+async def agent_status(user: User = Depends(get_user_from_request)):
+    return {
+        "running": agent.running,
+        "url": (await agent.page_url()) if agent.running else None,
+        "history": agent.history[-30:],
     }
 
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { X, Mic, MicOff, Monitor, MonitorOff, Volume2, VolumeX, Sparkles, Camera } from "lucide-react";
+import { X, Mic, MicOff, Monitor, MonitorOff, Volume2, VolumeX, Sparkles, Camera, MessageCircle, Hand } from "lucide-react";
 import { api } from "@/lib/api";
+import AgentPanel from "@/components/AgentPanel";
 
 /**
  * Genie Mode — hands-free, eyes-shared conversation.
@@ -17,6 +18,7 @@ export default function GenieMode({ open, onClose, onAssistantMessage, conversat
   const [voiceOn, setVoiceOn] = useState(true);
   const [screenOn, setScreenOn] = useState(false);
   const [error, setError] = useState("");
+  const [rightPane, setRightPane] = useState("transcript"); // 'transcript' | 'agent'
 
   const recogRef = useRef(null);
   const streamRef = useRef(null);
@@ -299,8 +301,38 @@ export default function GenieMode({ open, onClose, onAssistantMessage, conversat
           </p>
         </div>
 
-        {/* Right — transcript + screen preview */}
+        {/* Right — transcript + screen preview, OR agent */}
         <div className="border-l border-[#2A2420] flex flex-col overflow-hidden">
+          {/* Tab switcher */}
+          <div className="flex border-b border-[#2A2420] bg-[#0F0F12]">
+            <button
+              data-testid="genie-tab-transcript"
+              onClick={() => setRightPane("transcript")}
+              className={`flex-1 px-4 py-2.5 text-[10px] uppercase tracking-[0.3em] font-body inline-flex items-center justify-center gap-2 transition-colors ${
+                rightPane === "transcript"
+                  ? "text-[#D4AF37] border-b-2 border-[#D4AF37]"
+                  : "text-[#6B5F45] hover:text-[#9A8868]"
+              }`}
+            >
+              <MessageCircle size={12} /> Voice
+            </button>
+            <button
+              data-testid="genie-tab-agent"
+              onClick={() => setRightPane("agent")}
+              className={`flex-1 px-4 py-2.5 text-[10px] uppercase tracking-[0.3em] font-body inline-flex items-center justify-center gap-2 transition-colors ${
+                rightPane === "agent"
+                  ? "text-[#D4AF37] border-b-2 border-[#D4AF37]"
+                  : "text-[#6B5F45] hover:text-[#9A8868]"
+              }`}
+            >
+              <Hand size={12} /> Agent
+            </button>
+          </div>
+
+          {rightPane === "agent" ? (
+            <AgentPanel active={open} onAssistantSay={(t) => speak(t)} />
+          ) : (
+          <>
           {screenOn && (
             <div className="relative bg-[#0B0B0E] border-b border-[#2A2420] p-3">
               <video
@@ -343,6 +375,8 @@ export default function GenieMode({ open, onClose, onAssistantMessage, conversat
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
       </div>
     </div>
