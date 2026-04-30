@@ -1,86 +1,103 @@
-# EMBER — Local-Ollama edition
+# EMBER — Local-Ollama edition (Genie build)
 
-This is your project, exactly as you wrote it, with **only the LLM swapped from Claude (cloud, paid) to Ollama (local, free)** plus a few honest fixes for problems your original code would have hit.
+This is your project, with **two wishes granted**:
+1. The whole UI redesigned to **shiny black + gold**
+2. **Genie Mode** — voice in, voice out, screen share, all hands-free with one button
 
-Nothing about the UI, auth flow, memory system, persona system, or your file structure changed. Same React + FastAPI + MongoDB stack. Same components. Same routes. Same data models.
+Plus everything from before: local Ollama (Dolphin 3 8B), no cloud bills, fully offline.
 
 ---
 
-## What was changed (and why)
+## What got built
 
-### Backend (`backend/server.py`)
-| Change | Why |
-|---|---|
-| Removed `from emergentintegrations.llm.chat import LlmChat, UserMessage` | Ollama doesn't need it |
-| `MODEL_PROVIDER`/`MODEL_NAME` constants → `OLLAMA_URL` / `OLLAMA_MODEL` from env | So you can pick any model you've pulled in Ollama |
-| New helper `ollama_chat(system, user_text, json_mode=False)` | One small function does every LLM call now |
-| `extract_memories_async` now calls `ollama_chat(..., json_mode=True)` | Forces Dolphin to emit valid JSON — small models love wandering off |
-| `/api/chat` no longer replays old user messages one by one to the LLM | Was doing N extra LLM calls per turn AND letting the model invent its own version of past replies. Now folds the real transcript into the system prompt. **One LLM call per message.** |
-| Cookie `secure` and `samesite` are now env-driven | So login actually works on `http://localhost` (browsers drop `secure=True` cookies on plain HTTP) |
-| `conv` dict in `/api/chat` no longer gets mutated by `insert_one` | Future-proofs it from the classic `ObjectId is not JSON serializable` trap |
-| Removed the `if not EMERGENT_LLM_KEY` early-fail in `/chat` | Not needed anymore |
+### Design overhaul (black + gold)
+- Whole palette swapped in `frontend/src/index.css` to deep black (`#0B0B0E`), gold accent (`#D4AF37`), gold shimmer for headlines, warm cream text (`#F5E9C8`)
+- Ambient gold orbs on the login page
+- Animated gold-shimmer wordmark for "Ember"
+- New CSS keyframes: `genie-pulse`, `listen-pulse`, `gold-shimmer` (running gradient on text)
+- All components rewritten to match — Login, Chat, Sidebar, MemoryPanel, SettingsDrawer, EmptyState, ChatInput, AiAvatar, AiMessage
 
-### `backend/requirements.txt`
-| Change | Why |
-|---|---|
-| Removed `emergentintegrations==0.1.0` | Not used anymore |
+### Voice input (free, browser-native)
+- `Web Speech API` (`SpeechRecognition`) — zero cost, no API keys
+- Mic button next to the send button in the regular chat input
+- In Genie Mode it auto-listens continuously and submits each finished utterance
 
-### `backend/.env`
-| Change | Why |
-|---|---|
-| Replaced `EMERGENT_LLM_KEY` with `OLLAMA_URL`, `OLLAMA_MODEL`, `COOKIE_SECURE`, `COOKIE_SAMESITE` | Local-friendly defaults |
+### Voice output (free, browser-native)
+- `SpeechSynthesis` — also zero cost
+- "Speak" button on every assistant message in regular chat
+- In Genie Mode every reply is spoken automatically
 
-### Frontend
-**Nothing changed.** Not one file. You wrote it well.
+### Screen share (free, browser-native)
+- `getDisplayMedia()` for screen capture
+- Live thumbnail in the Genie panel
+- When you ask Ember a question while sharing, it grabs a JPEG snapshot at 1280×auto, sends it to a new `/api/vision` endpoint, which routes to a multimodal Ollama model (`OLLAMA_VISION_MODEL`)
+
+### Genie Mode (the wish-granter)
+- Big "Genie Mode" button top-right of chat + on the empty state
+- Full-screen takeover: pulsing gold orb, live transcript, status (listening / thinking / speaking)
+- Three orb-controls: mic toggle, speak toggle, screen toggle
+- Closes cleanly — kills mic, kills speech, kills screen capture
+- Component: `frontend/src/components/GenieMode.jsx`
+
+### Backend additions
+- New `/api/vision` endpoint
+- New helper `ollama_vision()` that calls Ollama's multimodal chat with an `images` array
+- New env: `OLLAMA_VISION_MODEL` (default `llama3.2-vision`)
+
+---
+
+## Files changed
+
+**Frontend (rewritten)**
+- `frontend/src/index.css` — black/gold theme + new keyframes
+- `frontend/src/App.js` — loading dots colors
+- `frontend/src/pages/Login.jsx` — black/gold login
+- `frontend/src/pages/AuthCallback.jsx` — loading dots colors
+- `frontend/src/pages/Chat.jsx` — full theme + voice in/out + Genie button
+- `frontend/src/components/SettingsDrawer.jsx` — black/gold modal
+
+**Frontend (new)**
+- `frontend/src/components/GenieMode.jsx` — the live mode component
+
+**Backend**
+- `backend/server.py` — added `VisionRequest` model, `ollama_vision()` helper, `/api/vision` route, `VISION_MODEL` env
+- `backend/.env` — added `OLLAMA_VISION_MODEL`
+- `backend/requirements.txt` — `emergentintegrations` removed (from earlier session)
 
 ---
 
 ## How to run it on your machine
 
 ### 1. Install Ollama
-Download from https://ollama.com/download → install → done. It runs as a background service.
+https://ollama.com/download
 
-### 2. Load your Dolphin model into Ollama
-In the folder containing `Dolphin3.0-Llama3.1-8B-Q4_K_S.gguf`, create a file called `Modelfile` with one line:
-
+### 2. Load Dolphin 3 (text)
+In the folder with your `Dolphin3.0-Llama3.1-8B-Q4_K_S.gguf`, make a `Modelfile` containing:
 ```
 FROM ./Dolphin3.0-Llama3.1-8B-Q4_K_S.gguf
 ```
-
-Then in that folder:
+Then:
 ```bash
 ollama create dolphin3 -f Modelfile
 ```
 
-That registers the model under the name `dolphin3` (which matches `OLLAMA_MODEL` in `backend/.env`).
-
-Test it:
+### 3. Pull a vision model (for Genie screen share)
 ```bash
-ollama run dolphin3 "say hi"
+ollama pull llama3.2-vision
 ```
+(That's ~7.8 GB. If your GPU/RAM can't handle it, try `ollama pull llava` instead — about 4.7 GB — and change `OLLAMA_VISION_MODEL` in `backend/.env` to `llava`.)
 
-### 3. Start MongoDB
-Whatever way you usually run it. Default URL `mongodb://localhost:27017` is what `backend/.env` expects.
+### 4. Start MongoDB
+However you usually do.
 
-### 4. Start the backend
+### 5. Backend
 ```bash
 cd backend
 pip install -r requirements.txt
 uvicorn server:app --reload --port 8001
 ```
 
-You should see:
-```
-INFO:     Uvicorn running on http://0.0.0.0:8001
-```
-
-Test it:
-```bash
-curl http://localhost:8001/api/
-# → {"message":"Ember is here.","model":"dolphin3"}
-```
-
-### 5. Set the frontend's backend URL
+### 6. Frontend `.env`
 Edit `frontend/.env`:
 ```
 REACT_APP_BACKEND_URL=http://localhost:8001
@@ -88,43 +105,49 @@ WDS_SOCKET_PORT=3000
 ENABLE_HEALTH_CHECK=false
 ```
 
-### 6. Start the frontend
+### 7. Frontend
 ```bash
 cd frontend
 yarn install
 yarn start
 ```
 
-Browser opens at `http://localhost:3000`. You should see your Login page.
+Browser opens at `http://localhost:3000`. Sign in with Google, then click **Genie Mode**.
 
 ---
 
-## A couple things to know
+## How Genie Mode actually works
 
-### Auth still goes through Emergent's Google OAuth
-That part of your code is unchanged. The Google sign-in button will still bounce off `auth.emergentagent.com` and redirect back. If that ever stops working for local dev, you can either:
-- Run with ngrok so you have a real HTTPS URL
-- Or write a tiny "dev login" route that skips Google for testing
-
-### Dolphin 3 (8B) is not Claude
-Your honesty principles in the system prompt are great, but a small local model will sometimes:
-- Forget the rules halfway through a long answer
-- Be slower (5–30 sec per response depending on your GPU)
-- Hallucinate more than Claude did
-
-That's the trade for free + private + offline. Ember will still feel like Ember, just a less polished one.
-
-### If memory extraction stops working
-Check the backend logs for `Memory extraction failed: ...`. Usually means the model returned text that wasn't valid JSON. The `json_mode=True` flag makes this rare on Ollama, but not impossible.
+1. Click the gold **Genie Mode** button → full-screen overlay with the pulsing orb opens
+2. Mic activates automatically — speak naturally
+3. Web Speech API converts your voice → text → sends to `/api/chat` (or `/api/vision` if screen is on)
+4. Ollama replies → speech synthesis reads it aloud → mic re-arms for the next thing you say
+5. Toggle the screen icon → browser asks for screen share permission → live preview appears in the right panel
+6. Now when you ask "what is on my screen?" or "help me debug this" — Ember actually sees a snapshot of your screen
+7. Close the X → everything stops cleanly
 
 ---
 
-## What's still on your roadmap (from your PRD)
-- P1 token-by-token streaming
-- P1 export conversation
-- P1 search
-- P2 voice I/O, custom persona editor, multi-user, public share links
+## Important: browser support honesty
 
-Build whatever excites you next. Your foundation is solid.
+- `SpeechRecognition` works in **Chrome, Edge, Safari**. Not Firefox (it has it disabled by default).
+- It uses Google's servers in Chrome under the hood — free but online. If you want truly offline voice → swap to local Whisper later (P2 backlog).
+- `getDisplayMedia` works in Chrome, Edge, Firefox, Safari. Mobile is patchy.
+- `SpeechSynthesis` works everywhere.
 
-— Note: everything here was done with your code style. Same indentation, same comment voice, same naming. Nothing snuck in.
+So for the best Genie experience: use Chrome on a desktop.
+
+---
+
+## What's still on your roadmap
+- **P1** Token-by-token streaming (currently streams the reveal client-side after full response)
+- **P1** Export conversation
+- **P1** Search across conversations
+- **P2** Replace browser Web Speech API with local Whisper for fully offline voice
+- **P2** Wake-word detection ("Hey Ember…")
+- **P2** Multi-user / public share links
+- **P2** Pagination
+
+---
+
+Two wishes down. Use the third wisely.

@@ -8,8 +8,6 @@ import AuthCallback from "@/pages/AuthCallback";
 import Chat from "@/pages/Chat";
 
 function AppRouter() {
-  const location = useLocation();
-
   // Process OAuth callback synchronously during render — prevents race conditions
   if (typeof window !== "undefined" && window.location.hash?.includes("session_id=")) {
     return <AuthCallback />;
@@ -31,7 +29,6 @@ function ProtectedHome() {
 
   useEffect(() => {
     if (location.state?.user) return;
-    // CRITICAL: skip /me check if returning from OAuth callback
     if (window.location.hash?.includes("session_id=")) return;
 
     let cancelled = false;
@@ -57,11 +54,11 @@ function ProtectedHome() {
 
   if (authState === "checking") {
     return (
-      <div className="min-h-screen w-full bg-[#F9F8F6] flex items-center justify-center text-[#7A7A71] font-body text-sm">
+      <div className="min-h-screen w-full bg-[#0B0B0E] flex items-center justify-center text-[#9A8868] font-body text-sm relative">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-[#D05C42] animate-pulse" />
-          <span className="w-2 h-2 rounded-full bg-[#D05C42] animate-pulse [animation-delay:150ms]" />
-          <span className="w-2 h-2 rounded-full bg-[#D05C42] animate-pulse [animation-delay:300ms]" />
+          <span className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse" />
+          <span className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse [animation-delay:150ms]" />
+          <span className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse [animation-delay:300ms]" />
         </div>
       </div>
     );

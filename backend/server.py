@@ -32,6 +32,7 @@ db = client[os.environ['DB_NAME']]
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')  # kept for backwards compat, unused with Ollama
 OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
 MODEL_NAME = os.environ.get('OLLAMA_MODEL', 'dolphin3')
+VISION_MODEL = os.environ.get('OLLAMA_VISION_MODEL', 'llama3.2-vision')
 COOKIE_SECURE = os.environ.get('COOKIE_SECURE', 'true').lower() == 'true'
 COOKIE_SAMESITE = os.environ.get('COOKIE_SAMESITE', 'none')
 
@@ -83,6 +84,12 @@ class Memory(BaseModel):
 class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
     message: str
+
+
+class VisionRequest(BaseModel):
+    conversation_id: Optional[str] = None
+    message: str
+    image: str  # data URL or raw base64
 
 
 class RenameRequest(BaseModel):
@@ -189,6 +196,23 @@ async def ollama_chat(system: str, user_text: str, json_mode: bool = False) -> s
     if json_mode:
         payload["format"] = "json"
     async with httpx.AsyncClient(timeout=180.0) as http:
+        r = await http.post(f"{OLLAMA_URL}/api/chat", json=payload)
+        r.raise_for_status()
+        data = r.json()
+        return data.get("message", {}).get("content", "")
+
+
+async def ollama_vision(system: str, user_text: str, image_b64: str) -> str:
+    """Single-turn call to a multimodal Ollama model with one screen image."""
+    payload = {
+        "model": VISION_MODEL,
+        "stream": False,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_text, "images": [image_b64]},
+        ],
+    }
+    async with httpx.AsyncClient(timeout=240.0) as http:
         r = await http.post(f"{OLLAMA_URL}/api/chat", json=payload)
         r.raise_for_status()
         data = r.json()
@@ -400,6 +424,57 @@ async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
     except Exception as e:
         logger.error(f"LLM error: {e}")
         raise HTTPException(500, f"LLM call failed: {str(e)}")
+
+    assistant_msg = Message(user_id=user.user_id, conversation_id=conv_id, role="assistant", content=response_text)
+    await db.messages.insert_one(assistant_msg.model_dump())
+
+    updates = {"updated_at": now_iso()}
+    if conv.get("title") == "New conversation":
+        title = req.message.strip().split("\n")[0][:60]
+        if len(req.message) > 60:
+            title += "..."
+        updates["title"] = title or "New conversation"
+    await db.conversations.update_one({"id": conv_id, "user_id": user.user_id}, {"$set": updates})
+
+    asyncio.create_task(extract_memories_async(user.user_id, req.message, response_text))
+
+    return {
+        "conversation_id": conv_id,
+        "user_message": user_msg.model_dump(),
+        "assistant_message": assistant_msg.model_dump(),
+    }
+
+
+# Vision (Genie Mode screen share)
+@api_router.post("/vision")
+async def vision(req: VisionRequest, user: User = Depends(get_user_from_request)):
+    conv_id = req.conversation_id
+    if conv_id:
+        conv = await db.conversations.find_one({"id": conv_id, "user_id": user.user_id}, {"_id": 0})
+        if not conv:
+            raise HTTPException(404, "Conversation not found")
+    else:
+        conv_model = Conversation(user_id=user.user_id)
+        await db.conversations.insert_one(conv_model.model_dump())
+        conv = conv_model.model_dump()
+        conv_id = conv["id"]
+
+    user_msg = Message(user_id=user.user_id, conversation_id=conv_id, role="user", content=req.message)
+    await db.messages.insert_one(user_msg.model_dump())
+
+    system_prompt = await build_system_prompt(user)
+    system_prompt += "\n\nThe user is sharing their screen. A snapshot is attached. Use it to ground your answer in what they actually see."
+
+    # strip data URL prefix if present
+    image_b64 = req.image
+    if "," in image_b64:
+        image_b64 = image_b64.split(",", 1)[1]
+
+    try:
+        response_text = await ollama_vision(system_prompt, req.message, image_b64)
+    except Exception as e:
+        logger.error(f"Vision LLM error: {e}")
+        raise HTTPException(500, f"Vision call failed: {str(e)}")
 
     assistant_msg = Message(user_id=user.user_id, conversation_id=conv_id, role="assistant", content=response_text)
     await db.messages.insert_one(assistant_msg.model_dump())

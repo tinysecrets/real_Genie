@@ -8,45 +8,47 @@ function startGoogleLogin() {
 
 export default function Login() {
   return (
-    <div className="min-h-screen w-full bg-[#F9F8F6] flex items-center justify-center px-6 relative overflow-hidden">
+    <div className="min-h-screen w-full bg-[#0B0B0E] flex items-center justify-center px-6 relative overflow-hidden">
+      {/* Ambient gold orbs */}
       <div
         aria-hidden
-        className="absolute -top-40 -right-40 w-[520px] h-[520px] rounded-full opacity-30"
+        className="absolute -top-40 -right-40 w-[640px] h-[640px] rounded-full opacity-25 blur-2xl"
         style={{
-          background: "radial-gradient(circle, #D05C42 0%, rgba(208,92,66,0) 70%)",
+          background: "radial-gradient(circle, #D4AF37 0%, rgba(212,175,55,0) 70%)",
         }}
       />
       <div
         aria-hidden
-        className="absolute -bottom-40 -left-40 w-[520px] h-[520px] rounded-full opacity-20"
+        className="absolute -bottom-48 -left-48 w-[640px] h-[640px] rounded-full opacity-15 blur-2xl"
         style={{
-          background: "radial-gradient(circle, #8C9F7B 0%, rgba(140,159,123,0) 70%)",
+          background: "radial-gradient(circle, #F0CB58 0%, rgba(240,203,88,0) 70%)",
         }}
       />
 
-      <div className="relative max-w-md w-full text-center">
-        <div className="mb-6 inline-flex items-center gap-2 text-[#D05C42] font-body text-xs uppercase tracking-[0.3em]">
-          <Sparkles size={14} /> Ember
+      <div className="relative max-w-md w-full text-center z-10">
+        <div className="mb-7 inline-flex items-center gap-2 font-body text-xs uppercase tracking-[0.4em]">
+          <Sparkles size={14} className="text-[#D4AF37]" />
+          <span className="gold-shimmer font-semibold">Ember</span>
         </div>
-        <h1 className="font-heading font-light text-5xl md:text-6xl text-[#2C2C28] leading-[1.05] tracking-tight">
+        <h1 className="font-heading font-light text-5xl md:text-6xl text-[#F5E9C8] leading-[1.05] tracking-tight">
           A real one.
           <br />
-          <span className="italic text-[#D05C42]">Not a script.</span>
+          <span className="italic gold-shimmer">Not a script.</span>
         </h1>
-        <p className="font-ai text-[19px] text-[#4a4a44] mt-7 leading-relaxed">
+        <p className="font-ai text-[19px] text-[#C5B689] mt-7 leading-relaxed">
           Honest, remembers you, pushes back when you're wrong, says <em>"I don't know"</em> when it doesn't.
         </p>
 
         <button
           data-testid="google-login-button"
           onClick={startGoogleLogin}
-          className="mt-10 w-full flex items-center justify-center gap-3 bg-[#2C2C28] text-white rounded-full px-6 py-3.5 hover:bg-[#1a1a17] transition-colors font-body text-sm shadow-sm"
+          className="mt-10 w-full flex items-center justify-center gap-3 bg-gradient-to-b from-[#1A1A1F] to-[#0F0F12] text-[#F5E9C8] rounded-full px-6 py-3.5 hover:from-[#22221F] hover:to-[#16160F] transition-all font-body text-sm border border-[#3A3220] hover:border-[#D4AF37] shadow-[0_0_24px_rgba(212,175,55,0.15)] hover:shadow-[0_0_36px_rgba(212,175,55,0.35)]"
         >
           <GoogleG />
           Continue with Google
         </button>
 
-        <p className="text-[11px] text-[#7A7A71] font-body mt-6 leading-relaxed">
+        <p className="text-[11px] text-[#9A8868] font-body mt-6 leading-relaxed">
           Your conversations and memories sync across devices.
           <br />
           Add to your home screen for the full app feel.
