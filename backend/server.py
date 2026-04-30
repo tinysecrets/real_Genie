@@ -374,17 +374,19 @@ async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
     history = await get_chat_history(user.user_id, conv_id)
     system_prompt = await build_system_prompt(user)
 
+    # Fold the real prior turns into the system prompt — one LLM call per message, no replay
+    prior = [m for m in history if m["id"] != user_msg.id]
+    if prior:
+        transcript = "\n\n".join(
+            f"{'User' if m['role'] == 'user' else 'Ember'}: {m['content']}" for m in prior
+        )
+        system_prompt += f"\n\n--- This conversation so far ---\n{transcript}"
+
     chat_client = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=f"{conv_id}-{uuid.uuid4().hex[:8]}",  # fresh session per call
         system_message=system_prompt,
     ).with_model(MODEL_PROVIDER, MODEL_NAME)
-
-    # Replay prior turns (excluding the just-stored user message)
-    prior = [m for m in history if m["id"] != user_msg.id]
-    for m in prior:
-        if m["role"] == "user":
-            await chat_client.send_message(UserMessage(text=m["content"]))
 
     try:
         response_text = await chat_client.send_message(UserMessage(text=req.message))
