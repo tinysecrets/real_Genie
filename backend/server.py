@@ -13,8 +13,35 @@ from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
 
-from agent import EmberAgent
-from transcribe import transcribe_bytes
+try:
+    from agent import EmberAgent
+    AGENT_OK = True
+except Exception as _e:
+    logging.getLogger(__name__).warning(f"Browser agent unavailable: {_e}")
+    AGENT_OK = False
+    class EmberAgent:  # stub so /api/agent/* return clean 503s
+        def __init__(self, *a, **kw): pass
+        @property
+        def running(self): return False
+        history = []
+        async def start(self): raise RuntimeError("Playwright not installed. Run: pip install playwright && playwright install chromium")
+        async def stop(self): return
+        async def goto(self, *a, **kw): raise RuntimeError("Playwright not installed")
+        async def screenshot(self): raise RuntimeError("Playwright not installed")
+        async def page_url(self): return ""
+        async def page_text(self, *a, **kw): return ""
+        async def act(self, *a, **kw): raise RuntimeError("Playwright not installed")
+        async def extract(self, *a, **kw): raise RuntimeError("Playwright not installed")
+        async def run(self, *a, **kw): raise RuntimeError("Playwright not installed")
+
+try:
+    from transcribe import transcribe_bytes
+    VOICE_OK = True
+except Exception as _e:
+    logging.getLogger(__name__).warning(f"Voice transcription unavailable: {_e}")
+    async def transcribe_bytes(_b: bytes) -> str:
+        return ""
+    VOICE_OK = False
 
 
 
