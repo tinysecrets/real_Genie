@@ -11,6 +11,11 @@ import { VoiceCapture } from "@/lib/voice";
 import SettingsDrawer from "@/components/SettingsDrawer";
 import GenieMode from "@/components/GenieMode";
 
+/**
+ * Render a styled circular AI avatar containing a sparkles icon.
+ *
+ * @returns {JSX.Element} The avatar element (contains data-testid="ai-avatar").
+ */
 function AiAvatar() {
   return (
     <div
@@ -22,6 +27,16 @@ function AiAvatar() {
   );
 }
 
+/**
+ * Render a right-aligned user chat bubble that displays the provided text.
+ *
+ * The displayed content preserves line breaks and is styled as the user's message
+ * bubble. The root element includes `data-testid="user-message"`.
+ *
+ * @param {{content: string}} props
+ * @param {string} props.content - Text to display inside the bubble; line breaks are preserved.
+ * @returns {JSX.Element} A right-aligned chat bubble element containing the provided content.
+ */
 function UserMessage({ content }) {
   return (
     <div data-testid="user-message" className="flex justify-end w-full">
@@ -58,6 +73,16 @@ const mdComponents = {
   ),
 };
 
+/**
+ * Render an assistant chat message with optional "thinking" indicator, streaming cursor, and hover actions.
+ *
+ * @param {{content?: string, thinking?: boolean, streaming?: boolean, onSpeak?: (text?: string) => void}} props
+ * @param {string} [props.content] - Markdown content to render inside the message bubble.
+ * @param {boolean} [props.thinking] - When true, displays a pulsing typing indicator instead of message content.
+ * @param {boolean} [props.streaming] - When true, shows a streaming cursor and hides hover action buttons.
+ * @param {(text?: string) => void} [props.onSpeak] - Optional callback invoked with `content` when the speak button is pressed.
+ * @returns {JSX.Element} The AI message element ready for rendering in the chat feed.
+ */
 function AiMessage({ content, thinking, streaming, onSpeak }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
@@ -119,6 +144,15 @@ function AiMessage({ content, thinking, streaming, onSpeak }) {
   );
 }
 
+/**
+ * Renders the chat empty-state UI with a personalized greeting, a Genie Mode CTA, and quick-start prompt buttons.
+ *
+ * @param {Object} props
+ * @param {string} [props.name] - Optional user name to include in the greeting.
+ * @param {(prompt: string) => void} props.onQuickStart - Invoked with the selected prompt when a quick-start button is clicked.
+ * @param {() => void} props.onOpenGenie - Invoked when the "Enter Genie Mode" CTA is clicked.
+ * @returns {JSX.Element} The empty state UI (contains elements with `data-testid="empty-state"`, `data-testid="open-genie-cta"`, and `data-testid="quick-start-prompt"`).
+ */
 function EmptyState({ name, onQuickStart, onOpenGenie }) {
   const prompts = [
     "What have I told you about myself so far?",
@@ -165,6 +199,23 @@ function EmptyState({ name, onQuickStart, onOpenGenie }) {
   );
 }
 
+/**
+ * Render the left sidebar containing conversation history, new-conversation and persona controls, and user actions.
+ *
+ * @param {Object} props
+ * @param {{name?: string, email?: string, picture?: string}} props.user - Current user info used for display (name, email, avatar).
+ * @param {Array<{id: string, title: string}>} props.conversations - List of conversations to show in history.
+ * @param {string|null} props.currentId - ID of the currently selected conversation, or `null`.
+ * @param {(id: string) => void} props.onSelect - Called when a conversation is selected.
+ * @param {() => void} props.onNew - Called to create a new conversation.
+ * @param {(id: string) => void} props.onDelete - Called to delete a conversation.
+ * @param {(id: string, title: string) => void} props.onRename - Called to rename a conversation (id and new title).
+ * @param {() => void} props.onLogout - Called when the user chooses to log out.
+ * @param {() => void} props.onOpenSettings - Called to open the persona/settings drawer.
+ * @param {boolean} props.mobileOpen - Whether the mobile sidebar panel is currently open (controls slide-in/out).
+ * @param {() => void} props.onCloseMobile - Called to close the sidebar on mobile.
+ * @returns {JSX.Element} The sidebar element containing history, controls, and user area.
+ */
 function Sidebar({ user, conversations, currentId, onSelect, onNew, onDelete, onRename, onLogout, onOpenSettings, mobileOpen, onCloseMobile }) {
   const [editingId, setEditingId] = useState(null);
   const [editValue, setEditValue] = useState("");
@@ -279,6 +330,18 @@ function Sidebar({ user, conversations, currentId, onSelect, onNew, onDelete, on
   );
 }
 
+/**
+ * Renders the Memory side panel for viewing, adding, editing, and deleting memory entries.
+ *
+ * @param {Object} props
+ * @param {{id: string, content: string}[]} props.memories - Array of memory records to display.
+ * @param {(content: string) => void} props.onAdd - Invoked with trimmed content when a new memory is submitted.
+ * @param {(id: string) => void} props.onDelete - Invoked with a memory id to delete that memory.
+ * @param {(id: string, content: string) => void} props.onEdit - Invoked with a memory id and trimmed content to save edits.
+ * @param {boolean} props.mobileOpen - When true, the panel is visible on mobile (controls slide-in state).
+ * @param {() => void} props.onCloseMobile - Called to close the panel on mobile devices.
+ * @returns {JSX.Element} The MemoryPanel React element.
+ */
 function MemoryPanel({ memories, onAdd, onDelete, onEdit, mobileOpen, onCloseMobile }) {
   const [newMem, setNewMem] = useState("");
   const [editingId, setEditingId] = useState(null);
@@ -365,6 +428,15 @@ function MemoryPanel({ memories, onAdd, onDelete, onEdit, mobileOpen, onCloseMob
   );
 }
 
+/**
+ * A chat text input that auto-resizes, supports Enter-to-send, and optional voice capture.
+ *
+ * The component maintains the input value, prevents sending when empty or disabled, submits trimmed text via `onSend`, and clears the input after submit. Pressing Enter (without Shift) sends the message. When available, a microphone button toggles an offline voice capture flow that appends transcribed text to the input.
+ *
+ * @param {Object} props
+ * @param {(text: string) => void} props.onSend - Called with the trimmed message text when the user submits.
+ * @param {boolean} props.disabled - When true, submission and voice capture controls are disabled.
+ */
 function ChatInput({ onSend, disabled }) {
   const [value, setValue] = useState("");
   const [recording, setRecording] = useState(false);
@@ -463,6 +535,15 @@ function ChatInput({ onSend, disabled }) {
   );
 }
 
+/**
+ * Renders the main chat UI and manages conversations, messages, memories, persona, and UI drawers (sidebar, memory panel, settings, Genie).
+ *
+ * Manages loading and mutating remote data (conversations, messages, memories, persona), optimistic message sending with streaming reveal for assistant responses, text-to-speech playback, and hooks up all child components and callbacks.
+ *
+ * @param {{name?: string, [key: string]: any}} props.user - Current user object (may include name, avatar, and other profile fields).
+ * @param {() => void} [props.onLogout] - Optional callback invoked when the session is invalidated (e.g., backend returns 401).
+ * @returns {JSX.Element} The chat application's root React element.
+ */
 export default function Chat({ user, onLogout }) {
   const [conversations, setConversations] = useState([]);
   const [currentId, setCurrentId] = useState(null);

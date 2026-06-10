@@ -5,10 +5,18 @@ import { VoiceCapture } from "@/lib/voice";
 import AgentPanel from "@/components/AgentPanel";
 
 /**
- * Genie Mode — hands-free, eyes-shared conversation.
- *  - Voice in: Web Speech API (free, browser-native)
- *  - Voice out: SpeechSynthesis (free, browser-native)
- *  - Screen share: getDisplayMedia + canvas snapshot → /api/vision
+ * Hands-free "Genie Mode" UI that manages continuous offline voice capture, speech synthesis, optional screen capture for vision requests, and a transcript/agent pane.
+ *
+ * Renders a modal with status, controls (mic/speech toggle, stop speaking, screen share), a live transcript or Agent panel, and optional live screen preview.
+ *
+ * @param {{open: boolean, onClose: function, onAssistantMessage?: function, conversationId?: any, setConversationId: function, initialPane?: string}} props
+ * @param {boolean} props.open - Whether the Genie Mode modal is visible.
+ * @param {function} props.onClose - Called when the user requests to close the modal.
+ * @param {function} [props.onAssistantMessage] - Optional callback invoked with raw assistant API response objects.
+ * @param {?any} props.conversationId - Current conversation identifier (may be falsy for new conversations).
+ * @param {function} props.setConversationId - Setter called with a server-provided conversation ID when one is created.
+ * @param {string} [props.initialPane="transcript"] - Initial right-side pane, either "transcript" or "agent".
+ * @returns {JSX.Element|null} The Genie Mode modal element when open, or `null` when closed.
  */
 export default function GenieMode({ open, onClose, onAssistantMessage, conversationId, setConversationId, initialPane = "transcript" }) {
   const [listening, setListening] = useState(false);

@@ -8,6 +8,13 @@ import {
   ToastViewport,
 } from "@/components/ui/toast"
 
+/**
+ * Render a toast container that displays active toasts from the toast hook.
+ *
+ * Renders a ToastProvider containing each toast from `useToast()` (including its title,
+ * description, optional action, and a close control) and a ToastViewport to host them.
+ * @returns {JSX.Element} The toaster UI element.
+ */
 export function Toaster() {
   const { toasts } = useToast()
 

@@ -26,6 +26,13 @@ _model: Optional[vosk.Model] = None
 
 
 def get_model() -> Optional[vosk.Model]:
+    """
+    Load and cache the Vosk speech-recognition model from VOSK_MODEL_PATH.
+    
+    If the model has already been loaded, the cached instance is returned. If the model path does not exist or loading fails, the function returns `None` (and logs a warning or error).
+    Returns:
+        Optional[vosk.Model]: The loaded Vosk model instance, or `None` if the model is unavailable or failed to load.
+    """
     global _model
     if _model is not None:
         return _model
@@ -43,7 +50,15 @@ def get_model() -> Optional[vosk.Model]:
 
 
 async def transcribe_bytes(audio_bytes: bytes) -> str:
-    """Convert any browser audio blob → 16kHz mono PCM → Vosk transcript."""
+    """
+    Produce a text transcript from browser-encoded audio bytes using a local Vosk model.
+    
+    Parameters:
+        audio_bytes (bytes): Encoded audio blob from the browser (for example WebM/Opus from MediaRecorder).
+    
+    Returns:
+        str: The transcribed text with surrounding whitespace removed. Returns an empty string if the Vosk model is unavailable or if audio conversion fails.
+    """
     model = get_model()
     if model is None:
         return ""

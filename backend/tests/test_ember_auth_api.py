@@ -23,11 +23,26 @@ TOKEN_B = os.environ.get("TOKEN_B")
 
 
 def _auth(t):
+    """
+    Build HTTP headers for Bearer token authentication.
+    
+    Parameters:
+        t (str): Bearer token to place in the `Authorization` header.
+    
+    Returns:
+        dict: HTTP headers containing `Authorization: Bearer {t}` and `Content-Type: application/json`.
+    """
     return {"Authorization": f"Bearer {t}", "Content-Type": "application/json"}
 
 
 @pytest.fixture(scope="session")
 def s_a():
+    """
+    Create and return an HTTP session configured with user A's bearer authorization.
+    
+    Returns:
+        requests.Session: A session whose headers include `Authorization: Bearer {TOKEN_A}` and `Content-Type: application/json`.
+    """
     s = requests.Session()
     s.headers.update(_auth(TOKEN_A))
     return s
@@ -35,6 +50,12 @@ def s_a():
 
 @pytest.fixture(scope="session")
 def s_b():
+    """
+    Create a requests.Session configured with Bearer authentication for user B.
+    
+    Returns:
+        requests.Session: Session with headers `Authorization: Bearer {TOKEN_B}` and `Content-Type: application/json`.
+    """
     s = requests.Session()
     s.headers.update(_auth(TOKEN_B))
     return s
@@ -42,6 +63,12 @@ def s_b():
 
 @pytest.fixture(scope="session")
 def s_anon():
+    """
+    Create an unauthenticated requests.Session preconfigured for JSON requests.
+    
+    Returns:
+        requests.Session: A session with the "Content-Type: application/json" header set and no Authorization header.
+    """
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
     return s
@@ -68,6 +95,15 @@ class TestAuthGating:
         ("PUT", "/settings/persona", {"persona": "x"}),
     ])
     def test_all_endpoints_require_auth(self, s_anon, method, path, body):
+        """
+        Verify that an unauthenticated request to the specified API endpoint returns HTTP 401.
+        
+        Parameters:
+            s_anon (requests.Session): session configured without authorization headers.
+            method (str): HTTP method to use (e.g., "GET", "POST", "PATCH", "DELETE").
+            path (str): endpoint path appended to the API base URL.
+            body (dict | None): JSON payload to include with the request, if any.
+        """
         r = s_anon.request(method, f"{API}{path}", json=body)
         assert r.status_code == 401, f"{method} {path} => {r.status_code}"
 
@@ -129,6 +165,11 @@ class TestConversationsAndChat:
 # --- Memory CRUD ---
 class TestMemory:
     def test_crud(self, s_a):
+        """
+        Exercise the full create-read-update-delete lifecycle for the memory API using the authenticated session.
+        
+        Creates a memory with content "TEST_likes oat milk", verifies it appears in the memory list, updates its content to "TEST_likes almond milk" and verifies the update, then deletes the memory and verifies successful deletion.
+        """
         r = s_a.post(f"{API}/memory", json={"content": "TEST_likes oat milk"})
         assert r.status_code == 200
         mid = r.json()["id"]
@@ -173,6 +214,11 @@ class TestPersona:
 class TestIsolation:
     def test_separate_data(self, s_a, s_b):
         # A creates a memory + conversation
+        """
+        Verify data isolation between two users: resources created by user A are not visible to user B and cannot be modified or deleted by user B.
+        
+        Creates a memory and a conversation as user A, asserts that user B's listings do not contain those resources, asserts that user B receives 404 when attempting to rename or delete them, and finally cleans up the created memory and conversation as user A.
+        """
         ma = s_a.post(f"{API}/memory", json={"content": "TEST_ISO_A_secret"}).json()
         ca = s_a.post(f"{API}/conversations").json()
 
@@ -195,6 +241,11 @@ class TestIsolation:
 # --- Auto memory extraction ---
 class TestAutoExtraction:
     def test_grows_after_chat(self, s_a):
+        """
+        Verifies that sending a chat message causes the backend to automatically extract one or more memories and then cleans up created resources.
+        
+        Sends a chat message, polls the user's memories for up to ~16 seconds until new memory items (contents not present before the chat) appear, deletes any newly extracted memories and the created conversation, and fails if no new memory is found.
+        """
         before = {m["content"] for m in s_a.get(f"{API}/memory").json()}
         r = s_a.post(f"{API}/chat", json={
             "message": "Quick note: my name is TestNovaXZ and I work as a nurse in Lisbon."

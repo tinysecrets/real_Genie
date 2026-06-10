@@ -20,19 +20,83 @@ except Exception as _e:
     logging.getLogger(__name__).warning(f"Browser agent unavailable: {_e}")
     AGENT_OK = False
     class EmberAgent:  # stub so /api/agent/* return clean 503s
-        def __init__(self, *a, **kw): pass
+        def __init__(self, *a, **kw): """
+No-op initializer that accepts any positional and keyword arguments and performs no initialization.
+
+Parameters:
+    *a: Positional arguments that are accepted and ignored.
+    **kw: Keyword arguments that are accepted and ignored.
+"""
+pass
         @property
-        def running(self): return False
+        def running(self): """
+Indicates whether the agent is currently running.
+
+Returns:
+    True if the agent is running, False otherwise.
+"""
+return False
         history = []
-        async def start(self): raise RuntimeError("Playwright not installed. Run: pip install playwright && playwright install chromium")
-        async def stop(self): return
-        async def goto(self, *a, **kw): raise RuntimeError("Playwright not installed")
-        async def screenshot(self): raise RuntimeError("Playwright not installed")
-        async def page_url(self): return ""
-        async def page_text(self, *a, **kw): return ""
-        async def act(self, *a, **kw): raise RuntimeError("Playwright not installed")
-        async def extract(self, *a, **kw): raise RuntimeError("Playwright not installed")
-        async def run(self, *a, **kw): raise RuntimeError("Playwright not installed")
+        async def start(self): """
+Indicates the agent cannot be started because Playwright is not available.
+
+Raises:
+    RuntimeError: Playwright is not installed; the message includes the commands to install Playwright and the Chromium browser (`pip install playwright && playwright install chromium`).
+"""
+raise RuntimeError("Playwright not installed. Run: pip install playwright && playwright install chromium")
+        async def stop(self): """
+Stop the agent. This implementation is a no-op and performs no action.
+"""
+return
+        async def goto(self, *a, **kw): """
+Placeholder method for navigating the agent that always fails when Playwright is unavailable.
+
+Raises:
+    RuntimeError: Always raised with message "Playwright not installed".
+"""
+raise RuntimeError("Playwright not installed")
+        async def screenshot(self): """
+Indicate that screenshots are unavailable because Playwright is not installed.
+
+Raises:
+    RuntimeError: Always raised with the message "Playwright not installed".
+"""
+raise RuntimeError("Playwright not installed")
+        async def page_url(self): """
+Return the agent's current page URL.
+
+Returns:
+    url (str): The current page URL, or an empty string if no page is available.
+"""
+return ""
+        async def page_text(self, *a, **kw): """
+Retrieve the readable text content of the agent's current page.
+
+Returns:
+    str: The page text; returns an empty string (`""`) when no page is available or agent functionality is not present.
+"""
+return ""
+        async def act(self, *a, **kw): """
+Placeholder async method for agent actions that always raises a RuntimeError indicating Playwright is not installed.
+
+Raises:
+    RuntimeError: Always raised with the message "Playwright not installed".
+"""
+raise RuntimeError("Playwright not installed")
+        async def extract(self, *a, **kw): """
+Placeholder for the agent's extract method used when Playwright is not installed.
+
+Raises:
+    RuntimeError: Always raised with message "Playwright not installed".
+"""
+raise RuntimeError("Playwright not installed")
+        async def run(self, *a, **kw): """
+Attempt to run the agent; always raises a RuntimeError indicating Playwright is not installed.
+
+Raises:
+    RuntimeError: Raised unconditionally with the message "Playwright not installed".
+"""
+raise RuntimeError("Playwright not installed")
 
 try:
     from transcribe import transcribe_bytes
@@ -40,6 +104,15 @@ try:
 except Exception as _e:
     logging.getLogger(__name__).warning(f"Voice transcription unavailable: {_e}")
     async def transcribe_bytes(_b: bytes) -> str:
+        """
+        Provide a placeholder transcription result (empty string) for audio bytes when transcription is unavailable.
+        
+        Parameters:
+            _b (bytes): Audio file bytes (ignored).
+        
+        Returns:
+            str: An empty string.
+        """
         return ""
     VOICE_OK = False
 
@@ -164,11 +237,30 @@ class PersonaUpdate(BaseModel):
 
 # ---------- Helpers ----------
 def now_iso() -> str:
+    """
+    Get current UTC time as an ISO 8601 formatted string.
+    
+    Returns:
+        str: Current UTC timestamp including timezone information (ISO 8601).
+    """
     return datetime.now(timezone.utc).isoformat()
 
 
 async def get_user_from_request(request: Request, authorization: Optional[str] = Header(None)) -> User:
-    """Authenticator: cookie first, then Authorization Bearer header."""
+    """
+    Resolve and authenticate the user associated with the incoming request.
+    
+    Checks for a session token in the `session_token` cookie first, then falls back to the `Authorization: Bearer <token>` header. Validates the session document, enforces optional session expiry, and loads the user record.
+    
+    Parameters:
+        authorization (Optional[str]): Raw `Authorization` header value (e.g., `"Bearer <token>"`). If present and a cookie is missing, the bearer token will be used.
+    
+    Returns:
+        User: The authenticated user's Pydantic model.
+    
+    Raises:
+        HTTPException: 401 if no token is provided ("Not authenticated"), if the session is not found ("Invalid session"), if the session has expired ("Session expired"), or if the user record cannot be found ("User not found").
+    """
     token: Optional[str] = request.cookies.get("session_token")
     if not token and authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
@@ -195,6 +287,15 @@ async def get_user_from_request(request: Request, authorization: Optional[str] =
 
 
 async def get_persona(user_id: str) -> str:
+    """
+    Return the persona string for the specified user.
+    
+    Parameters:
+        user_id (str): ID of the user whose persona should be retrieved.
+    
+    Returns:
+        str: The user's stored persona, or DEFAULT_PERSONA if no custom persona is set.
+    """
     settings = await db.user_settings.find_one({"user_id": user_id}, {"_id": 0})
     if settings and settings.get("persona"):
         return settings["persona"]
@@ -202,6 +303,17 @@ async def get_persona(user_id: str) -> str:
 
 
 async def build_system_prompt(user: User) -> str:
+    """
+    Builds a complete system prompt tailored to the given user for priming the assistant.
+    
+    The returned prompt incorporates the user's persona, up to 500 of the user's stored memories (formatted as a bullet list or "(none yet)"), and a set of core principles and tone instructions to guide assistant behavior; it uses the user's first name (or "friend") when addressing them.
+    
+    Parameters:
+        user (User): The user whose persona, name, and memories are used to construct the prompt.
+    
+    Returns:
+        str: A single system prompt string customized for the user containing persona, core principles, and the user's memories.
+    """
     memories = await db.memories.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
     memory_lines = "\n".join(f"- {m['content']}" for m in memories) if memories else "(none yet)"
     persona = await get_persona(user.user_id)
@@ -227,6 +339,12 @@ Write like a thoughtful friend writing a letter — warm, clear, unhurried, real
 
 
 async def get_chat_history(user_id: str, conversation_id: str) -> List[dict]:
+    """
+    Retrieve up to 2000 messages for a user's conversation ordered oldest-first.
+    
+    Returns:
+        List[dict]: Message documents for the conversation with MongoDB `_id` removed, ordered by `created_at` ascending (oldest first), limited to 2000 items.
+    """
     msgs = await db.messages.find(
         {"conversation_id": conversation_id, "user_id": user_id}, {"_id": 0}
     ).sort("created_at", 1).to_list(2000)
@@ -234,7 +352,17 @@ async def get_chat_history(user_id: str, conversation_id: str) -> List[dict]:
 
 
 async def ollama_chat(system: str, user_text: str, json_mode: bool = False) -> str:
-    """Single-turn call to local Ollama. Returns the assistant's text."""
+    """
+    Call the local Ollama chat API with a single system/user turn.
+    
+    Parameters:
+        system (str): System prompt text sent to the model.
+        user_text (str): User message to include in the chat turn.
+        json_mode (bool): If true, request JSON-formatted assistant output.
+    
+    Returns:
+        str: Assistant-generated content from the response message; an empty string if the response has no message content.
+    """
     payload = {
         "model": MODEL_NAME,
         "stream": False,
@@ -253,7 +381,12 @@ async def ollama_chat(system: str, user_text: str, json_mode: bool = False) -> s
 
 
 async def ollama_vision(system: str, user_text: str, image_b64: str) -> str:
-    """Single-turn call to a multimodal Ollama model with one screen image."""
+    """
+    Send a single multimodal chat request to the configured Ollama vision model including one image.
+    
+    Returns:
+        assistant_content (str): The assistant's reply text content, or an empty string if the response has no content.
+    """
     payload = {
         "model": VISION_MODEL,
         "stream": False,
@@ -270,6 +403,16 @@ async def ollama_vision(system: str, user_text: str, image_b64: str) -> str:
 
 
 async def extract_memories_async(user_id: str, user_text: str, assistant_text: str):
+    """
+    Extract concise, durable facts about a user from a single user/assistant exchange and persist any new memories to the database.
+    
+    This background helper calls the LLM to produce a JSON array of short fact strings describing the user (preferences, identity, projects, relationships, goals, habits). It inserts each new, valid fact as a Memory for the given user and ignores duplicates or invalid items. If extraction fails or no valid facts are produced, the function returns without raising.
+    
+    Parameters:
+        user_id (str): ID of the user to associate new memories with.
+        user_text (str): The user's message from the exchange.
+        assistant_text (str): The assistant's reply from the exchange.
+    """
     try:
         system = (
             "You extract durable facts about a user from a single exchange. "
@@ -313,7 +456,20 @@ async def extract_memories_async(user_id: str, user_text: str, assistant_text: s
 # ---------- Auth Routes ----------
 @api_router.post("/auth/session")
 async def auth_session(body: SessionExchangeRequest, response: Response):
-    """Exchange Emergent session_id for our session_token cookie."""
+    """
+    Exchange an Emergent session_id for a local session token and set it as an HTTP-only cookie.
+    
+    Exchanges the provided Emergent session ID for user identity and a session token, upserts or creates the corresponding user record, creates a server-side session entry with an expiry, sets the `session_token` cookie on the response, and returns the user document.
+    
+    Parameters:
+        body (SessionExchangeRequest): Request body containing the Emergent `session_id`.
+    
+    Returns:
+        dict: The created or updated user document.
+    
+    Raises:
+        HTTPException: with status 401 if the external auth exchange fails or the auth response is invalid.
+    """
     async with httpx.AsyncClient(timeout=15.0) as http:
         try:
             r = await http.get(EMERGENT_AUTH_SESSION_URL, headers={"X-Session-ID": body.session_id})
@@ -374,11 +530,28 @@ async def auth_session(body: SessionExchangeRequest, response: Response):
 
 @api_router.get("/auth/me")
 async def auth_me(user: User = Depends(get_user_from_request)):
+    """
+    Get the authenticated user's serialized data as a dictionary.
+    
+    Returns:
+        dict: The authenticated user's fields as a plain dict (result of `User.model_dump()`).
+    """
     return user.model_dump()
 
 
 @api_router.post("/auth/logout")
 async def auth_logout(request: Request, response: Response, authorization: Optional[str] = Header(None)):
+    """
+    Log out the current user by invalidating their session and clearing the session cookie.
+    
+    Parameters:
+        request (Request): Incoming request used to read the `session_token` cookie.
+        response (Response): Response used to delete the `session_token` cookie.
+        authorization (Optional[str]): Optional `Authorization` header supporting `Bearer <token>` fallback.
+    
+    Returns:
+        dict: `{"ok": True}` indicating the logout operation completed. The function deletes the session document matching the token if present and removes the `session_token` cookie.
+    """
     token = request.cookies.get("session_token")
     if not token and authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
@@ -391,12 +564,27 @@ async def auth_logout(request: Request, response: Response, authorization: Optio
 # ---------- App Routes ----------
 @api_router.get("/")
 async def root():
+    """
+    Return a simple status payload indicating the service is running and which model is configured.
+    
+    Returns:
+        dict: Contains `message` (status string) and `model` (configured model name).
+    """
     return {"message": "Ember is here.", "model": MODEL_NAME}
 
 
 # Conversations
 @api_router.post("/conversations", response_model=Conversation)
 async def create_conversation(user: User = Depends(get_user_from_request)):
+    """
+    Create and persist a new conversation for the authenticated user.
+    
+    Parameters:
+        user (User): Authenticated user for whom the conversation is created.
+    
+    Returns:
+        Conversation: The created Conversation, including generated id and timestamps.
+    """
     conv = Conversation(user_id=user.user_id)
     await db.conversations.insert_one(conv.model_dump())
     return conv
@@ -404,12 +592,31 @@ async def create_conversation(user: User = Depends(get_user_from_request)):
 
 @api_router.get("/conversations", response_model=List[Conversation])
 async def list_conversations(user: User = Depends(get_user_from_request)):
+    """
+    List conversations for the authenticated user ordered by most recent update.
+    
+    Returns:
+        List[dict]: Up to 500 conversation objects for the user ordered by `updated_at` descending. Each dict omits the MongoDB internal `_id` field.
+    """
     convs = await db.conversations.find({"user_id": user.user_id}, {"_id": 0}).sort("updated_at", -1).to_list(500)
     return convs
 
 
 @api_router.patch("/conversations/{conv_id}", response_model=Conversation)
 async def rename_conversation(conv_id: str, body: RenameRequest, user: User = Depends(get_user_from_request)):
+    """
+    Update the title and `updated_at` timestamp of a conversation owned by the authenticated user.
+    
+    Parameters:
+        conv_id (str): Identifier of the conversation to rename.
+        body (RenameRequest): Request containing the new `title`.
+    
+    Returns:
+        dict: The updated conversation document (MongoDB `_id` is omitted).
+    
+    Raises:
+        HTTPException: 404 if the conversation for the user is not found.
+    """
     result = await db.conversations.find_one_and_update(
         {"id": conv_id, "user_id": user.user_id},
         {"$set": {"title": body.title, "updated_at": now_iso()}},
@@ -423,6 +630,18 @@ async def rename_conversation(conv_id: str, body: RenameRequest, user: User = De
 
 @api_router.delete("/conversations/{conv_id}")
 async def delete_conversation(conv_id: str, user: User = Depends(get_user_from_request)):
+    """
+    Delete a conversation belonging to the authenticated user and remove its messages.
+    
+    Parameters:
+        conv_id (str): The conversation's id to delete.
+    
+    Returns:
+        dict: `{"ok": True}` when the conversation and its messages were deleted.
+    
+    Raises:
+        HTTPException(404): If no conversation with the given id exists for the user.
+    """
     res = await db.conversations.delete_one({"id": conv_id, "user_id": user.user_id})
     if res.deleted_count == 0:
         raise HTTPException(404, "Conversation not found")
@@ -432,6 +651,18 @@ async def delete_conversation(conv_id: str, user: User = Depends(get_user_from_r
 
 @api_router.get("/conversations/{conv_id}/messages", response_model=List[Message])
 async def get_messages(conv_id: str, user: User = Depends(get_user_from_request)):
+    """
+    Return the messages for a conversation belonging to the authenticated user.
+    
+    Parameters:
+        conv_id (str): Conversation id to fetch messages for.
+    
+    Returns:
+        List[dict]: Messages for the conversation ordered by `created_at` ascending (up to 2000).
+    
+    Raises:
+        HTTPException: 404 if the conversation is not found for the user.
+    """
     conv = await db.conversations.find_one({"id": conv_id, "user_id": user.user_id}, {"_id": 0})
     if not conv:
         raise HTTPException(404, "Conversation not found")
@@ -444,6 +675,19 @@ async def get_messages(conv_id: str, user: User = Depends(get_user_from_request)
 # Chat
 @api_router.post("/chat")
 async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
+    """
+    Handle a single chat turn: persist the user's message, call the LLM to generate a reply, persist the assistant response, update conversation metadata, and schedule memory extraction.
+    
+    Parameters:
+        req (ChatRequest): Request payload containing `message` (the user's message) and optional `conversation_id` to continue an existing conversation.
+    
+    Returns:
+        dict: {
+            "conversation_id": str,              # ID of the conversation used or created
+            "user_message": dict,                # stored user message document
+            "assistant_message": dict            # stored assistant message document
+        }
+    """
     conv_id = req.conversation_id
     if conv_id:
         conv = await db.conversations.find_one({"id": conv_id, "user_id": user.user_id}, {"_id": 0})
@@ -498,6 +742,15 @@ async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
 # Vision (Genie Mode screen share)
 @api_router.post("/transcribe")
 async def transcribe(audio: UploadFile = File(...), user: User = Depends(get_user_from_request)):
+    """
+    Transcribes an uploaded audio file to plain text.
+    
+    Parameters:
+        audio (UploadFile): Uploaded audio file to transcribe.
+    
+    Returns:
+        dict: `{"text": transcribed_text}` where `transcribed_text` is the transcription result, or `""` if the uploaded file was empty.
+    """
     raw = await audio.read()
     if not raw:
         return {"text": ""}
@@ -507,6 +760,20 @@ async def transcribe(audio: UploadFile = File(...), user: User = Depends(get_use
 
 @api_router.post("/vision")
 async def vision(req: VisionRequest, user: User = Depends(get_user_from_request)):
+    """
+    Handle a vision-based chat turn: ensure or create a conversation, persist the user’s image-backed message, invoke the vision LLM, persist the assistant reply, update conversation metadata, and schedule background memory extraction.
+    
+    Parameters:
+        req (VisionRequest): Incoming request with `message`, `image` (data URL or base64), and optional `conversation_id`.
+        user (User): Authenticated user performing the request.
+    
+    Returns:
+        dict: {
+            "conversation_id": str,               # id of the conversation used or created
+            "user_message": dict,                 # stored user message document
+            "assistant_message": dict             # stored assistant message document
+        }
+    """
     conv_id = req.conversation_id
     if conv_id:
         conv = await db.conversations.find_one({"id": conv_id, "user_id": user.user_id}, {"_id": 0})
@@ -558,38 +825,98 @@ async def vision(req: VisionRequest, user: User = Depends(get_user_from_request)
 # Browser Agent (Genie's hands)
 @api_router.post("/agent/start")
 async def agent_start(user: User = Depends(get_user_from_request)):
+    """
+    Start the shared browser agent and return its current running status and page URL.
+    
+    Returns:
+        dict: A response object with keys:
+            - `ok` (`bool`): Always `True` if the start request was performed.
+            - `running` (`bool`): `True` if the agent is currently running, `False` otherwise.
+            - `url` (`str | None`): The agent's current page URL, or `None` if unavailable.
+    """
     await agent.start()
     return {"ok": True, "running": agent.running, "url": await agent.page_url()}
 
 
 @api_router.post("/agent/stop")
 async def agent_stop(user: User = Depends(get_user_from_request)):
+    """
+    Stop the shared browser agent and return its current running status.
+    
+    Returns:
+        dict: {"ok": True, "running": <bool>} where "ok" indicates the stop request was handled and "running" is True if the agent remains running, False otherwise.
+    """
     await agent.stop()
     return {"ok": True, "running": agent.running}
 
 
 @api_router.post("/agent/goto")
 async def agent_goto(body: AgentGoto, user: User = Depends(get_user_from_request)):
+    """
+    Navigate the browser agent to the specified URL.
+    
+    Parameters:
+        body (AgentGoto): Request body containing the destination URL (`body.url`).
+    
+    Returns:
+        dict: The agent's navigation result (structure depends on the agent implementation, typically includes status and current page URL).
+    """
     return await agent.goto(body.url)
 
 
 @api_router.post("/agent/act")
 async def agent_act(body: AgentAct, user: User = Depends(get_user_from_request)):
+    """
+    Send an instruction to the browser automation agent and return its response.
+    
+    Parameters:
+    	body (AgentAct): Request containing `instruction`, the action the agent should perform.
+    
+    Returns:
+    	The agent's response payload (structure depends on the agent implementation).
+    """
     return await agent.act(body.instruction)
 
 
 @api_router.post("/agent/extract")
 async def agent_extract(body: AgentExtract, user: User = Depends(get_user_from_request)):
+    """
+    Extract structured information from the currently loaded page using the browser agent according to the provided extraction instruction.
+    
+    Parameters:
+        body (AgentExtract): Contains `instruction`, a natural-language prompt that tells the agent what to extract from the page.
+    
+    Returns:
+        The agent's extraction result; the exact shape depends on the agent implementation (commonly a string, dict, or list).
+    """
     return await agent.extract(body.instruction)
 
 
 @api_router.post("/agent/run")
 async def agent_run(body: AgentRun, user: User = Depends(get_user_from_request)):
+    """
+    Execute the browser agent to pursue a goal with an optional maximum number of steps.
+    
+    Parameters:
+        body (AgentRun): Request payload containing `goal` (the objective for the agent) and `max_steps` (optional limit on steps the agent may take).
+    
+    Returns:
+        The result returned by the agent's `run` method (operation outcome).
+    """
     return await agent.run(body.goal, max_steps=body.max_steps)
 
 
 @api_router.get("/agent/screenshot")
 async def agent_screenshot(user: User = Depends(get_user_from_request)):
+    """
+    Return the agent's current screenshot and current page URL.
+    
+    Raises:
+        HTTPException: 409 if the agent is not running.
+    
+    Returns:
+        dict: A mapping with keys `"image"` and `"url"`. `"image"` is a base64-encoded image string of the screenshot, and `"url"` is the agent's current page URL.
+    """
     if not agent.running:
         raise HTTPException(409, "Agent not running")
     img = await agent.screenshot()
@@ -598,6 +925,16 @@ async def agent_screenshot(user: User = Depends(get_user_from_request)):
 
 @api_router.get("/agent/status")
 async def agent_status(user: User = Depends(get_user_from_request)):
+    """
+    Provide the agent's runtime status, the current page URL when running, and the most recent activity history.
+    
+    Returns:
+        dict: {
+            "running": bool — whether the agent is currently running;
+            "url": str or None — the agent's current page URL when running, otherwise None;
+            "history": List — the agent's last 30 history entries (most recent entries last).
+        }
+    """
     return {
         "running": agent.running,
         "url": (await agent.page_url()) if agent.running else None,
@@ -608,12 +945,36 @@ async def agent_status(user: User = Depends(get_user_from_request)):
 # Memory
 @api_router.get("/memory", response_model=List[Memory])
 async def list_memory(user: User = Depends(get_user_from_request)):
+    """
+    List up to 500 memories for the authenticated user, ordered newest first.
+    
+    Parameters:
+        user (User): Authenticated user resolved by the request dependency.
+    
+    Returns:
+        List[dict]: The user's memories with MongoDB `_id` removed, sorted by `created_at` descending (maximum 500 items).
+    """
     mems = await db.memories.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
     return mems
 
 
 @api_router.post("/memory", response_model=Memory)
 async def create_memory(body: MemoryCreate, user: User = Depends(get_user_from_request)):
+    """
+    Create and persist a new memory for the authenticated user.
+    
+    Trims surrounding whitespace from the provided content and rejects empty content.
+    
+    Parameters:
+        body (MemoryCreate): Request body containing the `content` for the memory.
+        user (User): Authenticated user creating the memory.
+    
+    Returns:
+        Memory: The created Memory model instance.
+    
+    Raises:
+        HTTPException: 400 if the trimmed content is empty ("Memory cannot be empty").
+    """
     content = body.content.strip()
     if not content:
         raise HTTPException(400, "Memory cannot be empty")
@@ -624,6 +985,21 @@ async def create_memory(body: MemoryCreate, user: User = Depends(get_user_from_r
 
 @api_router.patch("/memory/{mem_id}", response_model=Memory)
 async def update_memory(mem_id: str, body: MemoryUpdate, user: User = Depends(get_user_from_request)):
+    """
+    Update an existing memory's content for the authenticated user.
+    
+    Strips leading/trailing whitespace from `body.content` and updates the memory document owned by the requesting user.
+    
+    Parameters:
+        mem_id (str): The ID of the memory to update.
+        body (MemoryUpdate): Request body containing the new `content` value.
+    
+    Returns:
+        dict: The updated memory document as returned from the database (MongoDB `_id` is omitted).
+    
+    Raises:
+        HTTPException: 404 if no memory with the given `mem_id` exists for the user.
+    """
     result = await db.memories.find_one_and_update(
         {"id": mem_id, "user_id": user.user_id},
         {"$set": {"content": body.content.strip()}},
@@ -637,6 +1013,18 @@ async def update_memory(mem_id: str, body: MemoryUpdate, user: User = Depends(ge
 
 @api_router.delete("/memory/{mem_id}")
 async def delete_memory(mem_id: str, user: User = Depends(get_user_from_request)):
+    """
+    Delete a memory belonging to the authenticated user.
+    
+    Parameters:
+        mem_id (str): ID of the memory to delete.
+    
+    Returns:
+        dict: {"ok": True} when the memory was deleted.
+    
+    Raises:
+        HTTPException: 404 if no memory with the given id exists for the user.
+    """
     res = await db.memories.delete_one({"id": mem_id, "user_id": user.user_id})
     if res.deleted_count == 0:
         raise HTTPException(404, "Memory not found")
@@ -646,12 +1034,32 @@ async def delete_memory(mem_id: str, user: User = Depends(get_user_from_request)
 # Settings / Persona
 @api_router.get("/settings/persona")
 async def get_persona_route(user: User = Depends(get_user_from_request)):
+    """
+    Return the stored persona for the authenticated user and the application's default persona.
+    
+    Returns:
+        dict: A mapping with keys `"persona"` (the user's current persona string) and `"default"` (the application's default persona string).
+    """
     persona = await get_persona(user.user_id)
     return {"persona": persona, "default": DEFAULT_PERSONA}
 
 
 @api_router.put("/settings/persona")
 async def update_persona(body: PersonaUpdate, user: User = Depends(get_user_from_request)):
+    """
+    Update the authenticated user's persona setting.
+    
+    The provided persona is trimmed; if empty after trimming the default persona is used. The persona is stored (upserted) in the user's settings with an updated timestamp.
+    
+    Parameters:
+        body (PersonaUpdate): Request body containing `persona` (string).
+    
+    Returns:
+        dict: {"persona": <stored persona string>}.
+    
+    Raises:
+        HTTPException: 400 if the persona exceeds 1000 characters.
+    """
     persona = (body.persona or "").strip()
     if not persona:
         persona = DEFAULT_PERSONA
@@ -679,4 +1087,9 @@ app.add_middleware(
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    """
+    Close the global MongoDB client when the application is shutting down.
+    
+    Closes the shared AsyncIOMotorClient instance `client` to release network resources and file descriptors; intended to be registered as the application's shutdown handler.
+    """
     client.close()

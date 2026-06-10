@@ -7,6 +7,14 @@ import Login from "@/pages/Login";
 import AuthCallback from "@/pages/AuthCallback";
 import Chat from "@/pages/Chat";
 
+/**
+ * Configure application routes and short-circuit to the OAuth callback when a session hash is present.
+ *
+ * If the current browser URL hash contains `session_id=`, renders the OAuth callback component immediately;
+ * otherwise defines routes for `/login`, the authenticated home at `/`, and a catch-all redirect to `/`.
+ *
+ * @returns {JSX.Element} A React element representing the application's routing or the OAuth callback. 
+ */
 function AppRouter() {
   // Process OAuth callback synchronously during render — prevents race conditions
   if (typeof window !== "undefined" && window.location.hash?.includes("session_id=")) {
@@ -22,6 +30,11 @@ function AppRouter() {
   );
 }
 
+/**
+ * Render the protected home area: perform initial authentication resolution, show a loading UI while checking, redirect to the login route if unauthenticated, or render the Chat component for the authenticated user.
+ *
+ * @returns {JSX.Element} A loading screen when auth is being checked, a <Navigate to="/login" replace /> when unauthenticated, or the <Chat /> component with the authenticated user and logout handler.
+ */
 function ProtectedHome() {
   const location = useLocation();
   const [authState, setAuthState] = useState(location.state?.user ? "in" : "checking");
@@ -68,6 +81,11 @@ function ProtectedHome() {
   return <Chat user={user} onLogout={handleLogout} />;
 }
 
+/**
+ * Top-level application component that provides routing context and renders the app router.
+ *
+ * @returns {JSX.Element} A React element that wraps the application in a BrowserRouter and renders AppRouter.
+ */
 function App() {
   return (
     <BrowserRouter>

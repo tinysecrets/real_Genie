@@ -2,6 +2,17 @@ import { useState } from "react";
 import { X, Settings, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
 
+/**
+ * Render a modal settings drawer that lets the user edit, reset, and persist a persona string.
+ *
+ * @param {Object} props - Component props.
+ * @param {boolean} props.open - Controls whether the drawer is shown; when falsy the component renders `null`.
+ * @param {Function} props.onClose - Callback invoked to close the drawer.
+ * @param {string} [props.persona] - Initial persona text shown in the editor.
+ * @param {string} [props.defaultPersona] - Fallback persona used for the placeholder and the "reset to default" action.
+ * @param {Function} props.onSaved - Callback invoked with the persisted persona after a successful save.
+ * @returns {JSX.Element|null} The settings drawer element when visible, otherwise `null`.
+ */
 export default function SettingsDrawer({ open, onClose, persona, defaultPersona, onSaved }) {
   const [value, setValue] = useState(persona || "");
   const [saving, setSaving] = useState(false);

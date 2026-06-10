@@ -4,30 +4,60 @@ import { Check, ChevronRight, Circle } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Render a menubar Menu container.
+ *
+ * @param {object} props - Props forwarded to the underlying Menu primitive; accepts any valid Menu props.
+ * @returns {JSX.Element} A React element representing the menubar menu.
+ */
 function MenubarMenu({
   ...props
 }) {
   return <MenubarPrimitive.Menu {...props} />;
 }
 
+/**
+ * Render a menubar group container that visually and semantically groups related menu items.
+ *
+ * @param {object} props - Props to apply to the group element; any valid React props or children are accepted.
+ * @returns {JSX.Element} A React element representing the menubar group.
+ */
 function MenubarGroup({
   ...props
 }) {
   return <MenubarPrimitive.Group {...props} />;
 }
 
+/**
+ * Render a menubar portal element.
+ *
+ * Forwards all received props to the underlying Radix Menubar Portal component.
+ * @param {Object} props - Props passed to the Menubar portal (e.g., `children`, `container`).
+ * @return {JSX.Element} The Menubar portal element.
+ */
 function MenubarPortal({
   ...props
 }) {
   return <MenubarPrimitive.Portal {...props} />;
 }
 
+/**
+ * Render a radio group container for menubar items that enforces single selection.
+ * @param {object} props - Props forwarded to the underlying Radix `RadioGroup` primitive (typically contains radio item children and RadioGroup props).
+ * @returns {JSX.Element} A menubar radio group element that manages selection among its contained radio items.
+ */
 function MenubarRadioGroup({
   ...props
 }) {
   return <MenubarPrimitive.RadioGroup {...props} />;
 }
 
+/**
+ * Render a menubar sub wrapper with a fixed `data-slot="menubar-sub"` attribute.
+ *
+ * @param {object} props - Props passed through to the underlying menubar sub element.
+ * @returns {import('react').ReactElement} A menubar sub React element.
+ */
 function MenubarSub({
   ...props
 }) {

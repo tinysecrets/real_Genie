@@ -23,6 +23,15 @@ const badgeVariants = cva(
   }
 )
 
+/**
+ * Render a styled badge element whose visual style is selected by `variant`.
+ *
+ * @param {Object} props - Component props.
+ * @param {string} [props.className] - Additional class names to merge with the computed variant classes.
+ * @param {'default'|'secondary'|'destructive'|'outline'} [props.variant='default'] - Visual variant to apply.
+ * @param {import('react').HTMLAttributes<HTMLDivElement>} [props.props] - Additional HTML attributes forwarded to the root div.
+ * @returns {JSX.Element} A React element representing the badge.
+ */
 function Badge({
   className,
   variant,

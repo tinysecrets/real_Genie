@@ -7,6 +7,12 @@ import { Button } from "@/components/ui/button"
 
 const CarouselContext = React.createContext(null)
 
+/**
+ * Retrieve the carousel context value for the current component.
+ *
+ * @returns {{ carouselRef: import('react').RefObject<HTMLElement>|null, api: any, opts?: any, orientation: 'horizontal'|'vertical', scrollPrev: Function, scrollNext: Function, canScrollPrev: boolean, canScrollNext: boolean }} The CarouselContext value containing Embla refs, API, options, orientation, navigation handlers, and scroll availability flags.
+ * @throws {Error} If called outside of a <Carousel /> provider (`"useCarousel must be used within a <Carousel />"`).
+ */
 function useCarousel() {
   const context = React.useContext(CarouselContext)
 

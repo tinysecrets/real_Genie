@@ -6,9 +6,21 @@ const os = require('os');
 const SERVER_START_TIME = Date.now();
 
 /**
- * Setup health check endpoints on the dev server
- * @param {Object} devServer - Webpack dev server instance
- * @param {Object} healthPlugin - Instance of WebpackHealthPlugin
+ * Registers HTTP health and monitoring endpoints on the provided dev server.
+ *
+ * Exposes these routes on devServer.app:
+ *  - GET /health        : detailed JSON health report
+ *  - GET /health/simple : plain text status (OK / COMPILING / IDLE / ERROR)
+ *  - GET /health/ready  : readiness JSON (200 when ready, 503 otherwise)
+ *  - GET /health/live   : liveness JSON (always 200)
+ *  - GET /health/errors : current errors and warnings (JSON)
+ *  - GET /health/stats  : compilation and uptime statistics (JSON)
+ *
+ * If devServer or devServer.app is missing, or if healthPlugin is not provided,
+ * the function logs a warning and returns without registering routes.
+ *
+ * @param {Object} devServer - Dev server instance; must have an Express `app` to register routes.
+ * @param {Object} healthPlugin - Health plugin exposing `getStatus()` and `getSimpleStatus()` methods.
  */
 function setupHealthEndpoints(devServer, healthPlugin) {
   if (!devServer || !devServer.app) {
@@ -179,9 +191,9 @@ function setupHealthEndpoints(devServer, healthPlugin) {
 // ====================================================================
 
 /**
- * Format bytes to human-readable string
- * @param {number} bytes
- * @returns {string}
+ * Convert a byte count into a human-readable string using base-1024 units.
+ * @param {number} bytes - Number of bytes to format.
+ * @returns {string} A string using units `B`, `KB`, `MB`, or `GB`, rounded to two decimal places (e.g. `1.23 MB`).
  */
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
@@ -192,9 +204,9 @@ function formatBytes(bytes) {
 }
 
 /**
- * Format duration to human-readable string
- * @param {number} ms - Duration in milliseconds
- * @returns {string}
+ * Convert a millisecond duration into a compact human-readable string.
+ * @param {number} ms - Duration in milliseconds.
+ * @returns {string} A formatted duration such as `"1h 2m 3s"`, `"2m 3s"`, or `"45s"`; components are truncated to whole hours/minutes/seconds.
  */
 function formatDuration(ms) {
   const seconds = Math.floor(ms / 1000);

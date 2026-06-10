@@ -3,9 +3,11 @@ import { Globe, Play, Square, Send, Sparkles, ArrowRight } from "lucide-react";
 import { api } from "@/lib/api";
 
 /**
- * AgentPanel — the "hands" of the Genie.
- * Lives inside Genie Mode. Drives a backend Playwright browser via /api/agent/*.
- * Shows live screenshots and the running action trace.
+ * Render the AgentPanel: controls and visualizes a backend browser agent (screenshots, URL, goal input, and action trace).
+ * @param {{active:boolean, onAssistantSay?:function}} props - Component props.
+ * @param {boolean} props.active - When true, the panel is rendered and manages the agent lifecycle; otherwise the component returns null.
+ * @param {(message: string) => void} [props.onAssistantSay] - Optional callback invoked with a completion message when a run finishes.
+ * @returns {JSX.Element|null} The agent control UI when active, or null when inactive.
  */
 export default function AgentPanel({ active, onAssistantSay }) {
   const [running, setRunning] = useState(false);

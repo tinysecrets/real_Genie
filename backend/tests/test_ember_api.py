@@ -23,6 +23,12 @@ API = f"{BASE_URL}/api"
 
 @pytest.fixture(scope="session")
 def session():
+    """
+    Create a requests.Session configured to send JSON requests.
+    
+    Returns:
+        requests.Session: A session with the "Content-Type" header set to "application/json".
+    """
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
     return s
@@ -41,6 +47,11 @@ class TestHealth:
 # --- Conversations CRUD ---
 class TestConversations:
     def test_create_and_list(self, session):
+        """
+        Create a new conversation via the API and verify it appears in the conversations list.
+        
+        Sends a POST to /conversations, asserts the response contains an `id` and that the new conversation's title is "New conversation", and stores the id on TestConversations.created_id. Then fetches the conversations list, asserts the created conversation is present, and if the list contains two or more items, asserts the list is sorted by `updated_at` in descending order.
+        """
         r = session.post(f"{API}/conversations")
         assert r.status_code == 200
         c = r.json()
@@ -104,6 +115,11 @@ class TestChat:
             assert a["created_at"] <= b["created_at"]
 
     def test_auto_title(self, session):
+        """
+        Verify that a conversation has been auto-titled and the title respects the length limit.
+        
+        Asserts that the conversation with id stored in TestChat.cid exists, its title is not the default "New conversation", and the title length is at most 65 characters.
+        """
         cid = TestChat.cid
         items = session.get(f"{API}/conversations").json()
         match = next((x for x in items if x["id"] == cid), None)
@@ -135,6 +151,11 @@ class TestChat:
 # --- Memory CRUD ---
 class TestMemory:
     def test_create_memory(self, session):
+        """
+        Create a memory entry through the API and record its id for subsequent tests.
+        
+        Posts {"content": "TEST_likes black coffee"} to /memory, asserts the response has HTTP 200 and the returned object's "content" matches the submitted value, and stores the created memory's id on TestMemory.mid for later tests.
+        """
         r = session.post(f"{API}/memory", json={"content": "TEST_likes black coffee"})
         assert r.status_code == 200
         m = r.json()
@@ -175,6 +196,11 @@ class TestMemory:
 class TestAutoMemoryExtraction:
     def test_extract_from_chat(self, session):
         # snapshot existing memory contents
+        """
+        Verifies that user facts sent in chat are auto-extracted into memory and cleans up created resources.
+        
+        Sends a chat message containing identifiable personal facts, snapshots existing memory entries, then polls the memory list for up to ~16 seconds to detect newly extracted memories. Any discovered new memories are deleted and the created conversation is removed. The test asserts that at least one new memory was extracted and that its content contains at least one of the expected keywords ("nurse", "samuel", or "portland").
+        """
         before = {m["content"] for m in session.get(f"{API}/memory").json()}
         r = session.post(f"{API}/chat", json={
             "message": "Hey — my name is TestSamuelXY and I work as a registered nurse in Portland."

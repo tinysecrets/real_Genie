@@ -6,9 +6,14 @@ set -e
 
 cd "$(dirname "$0")"
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[0;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+# ok prints a green checkmark followed by the provided message in green to stdout.
 ok()   { echo -e "${GREEN}✓${NC} $1"; }
+# info prints an informational message to stdout prefixed with a blue arrow.
 info() { echo -e "${BLUE}→${NC} $1"; }
+# warn prints a yellow warning message prefixed with '!'.
 warn() { echo -e "${YELLOW}!${NC} $1"; }
+# fail prints a red error message prefixed with "✗" and then exits the script with status 1.
+# It takes a single argument: the error message to display.
 fail() { echo -e "${RED}✗${NC} $1"; exit 1; }
 
 echo ""

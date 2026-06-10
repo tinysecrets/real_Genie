@@ -1,11 +1,19 @@
 import { Sparkles } from "lucide-react";
 
-// REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+/**
+ * Initiates Google authentication by redirecting the browser to the authentication server using the current site origin as the encoded redirect target.
+ *
+ * The browser is sent to the authentication endpoint with `redirect` set to `window.location.origin + '/'`.
+ */
 function startGoogleLogin() {
   const redirectUrl = window.location.origin + "/";
   window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
 }
 
+/**
+ * Render the full-screen login landing page with branding, decorative ambient orbs, descriptive copy, and a Google sign-in button.
+ * @returns {JSX.Element} The rendered login page element.
+ */
 export default function Login() {
   return (
     <div className="min-h-screen w-full bg-[#0B0B0E] flex items-center justify-center px-6 relative overflow-hidden">
@@ -58,6 +66,11 @@ export default function Login() {
   );
 }
 
+/**
+ * Renders the Google "G" icon as an 18×18 inline SVG.
+ *
+ * @returns {JSX.Element} An SVG element representing the Google "G" icon with `aria-hidden` set.
+ */
 function GoogleG() {
   return (
     <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>

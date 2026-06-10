@@ -2,6 +2,16 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 
+/**
+ * Process an authentication session returned in the URL hash and redirect the user.
+ *
+ * Attempts to extract `session_id` from `window.location.hash`. If no `session_id` is present,
+ * navigates to `/login`. If present, exchanges the session ID with the backend, clears the URL,
+ * and navigates to `/` with the resolved `user` in navigation state. On exchange failure, logs the
+ * error and navigates to `/login`.
+ *
+ * @returns {JSX.Element} A full-screen loading UI indicating the sign-in is in progress.
+ */
 export default function AuthCallback() {
   const navigate = useNavigate();
   const hasProcessed = useRef(false);

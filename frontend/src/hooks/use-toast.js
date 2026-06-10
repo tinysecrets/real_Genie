@@ -14,6 +14,14 @@ const actionTypes = {
 
 let count = 0
 
+/**
+ * Generate a new numeric identifier string for toasts.
+ *
+ * The identifier is produced by incrementing an internal counter and wrapping
+ * at Number.MAX_SAFE_INTEGER to avoid overflow.
+ *
+ * @returns {string} The new identifier as a base-10 string.
+ */
 function genId() {
   count = (count + 1) % Number.MAX_SAFE_INTEGER
   return count.toString();
@@ -94,6 +102,10 @@ const listeners = []
 
 let memoryState = { toasts: [] }
 
+/**
+ * Apply an action to the in-memory toast store and notify all registered listeners of the updated state.
+ * @param {Object} action - Action object consumed by the reducer (must include a `type` and any reducer-specific payload).
+ */
 function dispatch(action) {
   memoryState = reducer(memoryState, action)
   listeners.forEach((listener) => {
@@ -101,6 +113,14 @@ function dispatch(action) {
   })
 }
 
+/**
+ * Create and show a toast notification and return controls for it.
+ * @param {Object} props - Options for the toast (e.g., content, duration, callbacks); these properties are stored on the created toast.
+ * @returns {{id: string, dismiss: function(): void, update: function(Object): void}} An object with:
+ *   - id: the generated toast identifier.
+ *   - dismiss: a function that closes the toast (schedules its removal).
+ *   - update: a function that merges provided properties into the existing toast.
+ */
 function toast({
   ...props
 }) {
@@ -132,6 +152,11 @@ function toast({
   }
 }
 
+/**
+ * Subscribes to the module-level toast store and provides the current toast state along with helper functions.
+ *
+ * @returns {{ toasts: Array, toast: Function, dismiss: (toastId?: string) => void } } An object containing the current toast state (`toasts` array and any other state fields), the `toast` factory for creating/updating toasts, and `dismiss(toastId)` which marks a specific toast (or all toasts when `toastId` is omitted) to be dismissed.
+ */
 function useToast() {
   const [state, setState] = React.useState(memoryState)
 
