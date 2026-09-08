@@ -5,7 +5,7 @@ import {
   Plus, Send, Trash2, Pencil, Check, X, Menu, Brain,
   Copy, CopyCheck, MessageSquare, Sparkles, Settings, LogOut,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, API } from "@/lib/api";
 import SettingsDrawer from "@/components/SettingsDrawer";
 
 const AI_AVATAR =
@@ -471,28 +471,6 @@ export default function Chat({ user, onLogout }) {
     loadConversations();
   };
 
-  // Stream an existing string into state at ~60 chars/sec — feels like real streaming
-  const streamReveal = (id, fullText) => {
-    return new Promise((resolve) => {
-      setStreamingId(id);
-      setStreamingText("");
-      let i = 0;
-      const chunk = Math.max(2, Math.ceil(fullText.length / 80));
-      const tick = () => {
-        if (i >= fullText.length) {
-          setStreamingId(null);
-          setStreamingText("");
-          resolve();
-          return;
-        }
-        i = Math.min(i + chunk, fullText.length);
-        setStreamingText(fullText.slice(0, i));
-        setTimeout(tick, 18);
-      };
-      tick();
-    });
-  };
-
   const sendMessage = async (text) => {
     if (sending) return;
     setSending(true);
@@ -503,31 +481,96 @@ export default function Chat({ user, onLogout }) {
       content: text,
       created_at: new Date().toISOString(),
     };
+    const assistantId = `stream-${Date.now()}`;
+    let persistedUser = null;
+    let fullText = "";
+    let convId = currentId;
+    let receivedDone = false;
     setMessages((m) => [...m, optimisticUser]);
+    setStreamingId(assistantId);
+    setStreamingText("");
 
     try {
-      const { data } = await api.post("/chat", {
-        conversation_id: currentId,
-        message: text,
+      const res = await fetch(`${API}/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ conversation_id: currentId, message: text }),
       });
-      const newConvId = data.conversation_id;
-      if (!currentId) {
-        skipNextLoad.current = true;
-        setCurrentId(newConvId);
+      if (res.status === 401) {
+        onLogout?.();
+        return;
+      }
+      if (!res.ok || !res.body) throw new Error(`chat stream failed: ${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let sep;
+        while ((sep = buf.indexOf("\n\n")) !== -1) {
+          let eventName = "message";
+          const dataLines = [];
+          for (const line of buf.slice(0, sep).split("\n")) {
+            if (line.startsWith("event:")) eventName = line.slice(6).trim();
+            else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+          }
+          buf = buf.slice(sep + 2);
+          const payload = dataLines.join("\n");
+          if (!payload) continue;
+          const data = JSON.parse(payload);
+
+          if (eventName === "start") {
+            persistedUser = data.user_message;
+            convId = data.conversation_id;
+            if (!currentId) {
+              skipNextLoad.current = true;
+              setCurrentId(convId);
+            }
+          } else if (eventName === "message") {
+            fullText += data.delta;
+            setStreamingText(fullText);
+          } else if (eventName === "done") {
+            receivedDone = true;
+            setStreamingId(null);
+            setStreamingText("");
+            setMessages((m) => {
+              const withUser = persistedUser
+                ? [...m.filter((x) => x.id !== optimisticUser.id), persistedUser]
+                : m;
+              if (withUser.some((x) => x.id === data.assistant_message.id)) return withUser;
+              return [...withUser, data.assistant_message];
+            });
+          } else if (eventName === "error") {
+            throw new Error(data.detail);
+          }
+        }
       }
 
-      // Replace temp user message with real one
-      setMessages((m) => {
-        const without = m.filter((x) => x.id !== optimisticUser.id);
-        return [...without, data.user_message];
-      });
-
-      // Stream reveal the assistant message (dedupe by id just in case)
-      await streamReveal(data.assistant_message.id, data.assistant_message.content);
-      setMessages((m) => {
-        if (m.some((x) => x.id === data.assistant_message.id)) return m;
-        return [...m, data.assistant_message];
-      });
+      // Stream ended without a done event — surface what we received client-side.
+      if (!receivedDone) {
+        setStreamingId(null);
+        setStreamingText("");
+        setMessages((m) => {
+          const withUser = persistedUser
+            ? [...m.filter((x) => x.id !== optimisticUser.id), persistedUser]
+            : m;
+          if (!fullText.trim() || withUser.some((x) => x.id === assistantId)) return withUser;
+          return [
+            ...withUser,
+            {
+              id: assistantId,
+              conversation_id: convId || "new",
+              role: "assistant",
+              content: fullText,
+              created_at: new Date().toISOString(),
+            },
+          ];
+        });
+      }
 
       loadConversations();
       setTimeout(loadMemories, 2500);
@@ -537,16 +580,23 @@ export default function Chat({ user, onLogout }) {
         onLogout?.();
         return;
       }
-      setMessages((m) => [
-        ...m,
-        {
-          id: `err-${Date.now()}`,
-          conversation_id: currentId || "new",
-          role: "assistant",
-          content: "Something went wrong on my end. Try again?",
-          created_at: new Date().toISOString(),
-        },
-      ]);
+      setStreamingId(null);
+      setStreamingText("");
+      setMessages((m) => {
+        const base = persistedUser
+          ? [...m.filter((x) => x.id !== optimisticUser.id), persistedUser]
+          : m;
+        return [
+          ...base,
+          {
+            id: `err-${Date.now()}`,
+            conversation_id: convId || "new",
+            role: "assistant",
+            content: "Something went wrong on my end. Try again?",
+            created_at: new Date().toISOString(),
+          },
+        ];
+      });
     } finally {
       setSending(false);
     }

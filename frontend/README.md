@@ -22,7 +22,7 @@ yarn test       # test runner
 Create `.env.local` in `frontend/`:
 
 ```
-REACT_APP_BACKEND_URL=http://localhost:8001
+REACT_APP_BACKEND_URL=http://localhost:8000
 ```
 
 All API calls go to `${REACT_APP_BACKEND_URL}/api`.

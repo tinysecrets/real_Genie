@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import urllib.parse
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -17,6 +18,7 @@ from typing import List, Optional
 import httpx
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
@@ -40,6 +42,8 @@ db = client[DB_NAME]
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 MODEL_NAME = os.environ.get("OLLAMA_MODEL", "dolphin3")
+
+DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
 
 EMERGENT_AUTH_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 SESSION_DAYS = 7
@@ -130,6 +134,35 @@ def _schedule(coro):
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _sse(event: str, payload: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
+
+
+def _origin_allowed(request: Request) -> bool:
+    """CSRF guard for state-changing browser endpoints.
+
+    Requests without an Origin header (CLIs, curl, tests) are allowed.
+    Otherwise the Origin must match the CORS allowlist or the request host.
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return True
+    origins = [
+        o.strip()
+        for o in os.environ.get("CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",")
+        if o.strip()
+    ]
+    if origin in origins:
+        return True
+    try:
+        parsed = urllib.parse.urlparse(origin)
+        return parsed.hostname == request.url.hostname and (parsed.port or 443) == (
+            request.url.port or 443
+        )
+    except Exception:
+        return False
 
 
 async def get_user_from_request(
@@ -260,10 +293,51 @@ async def extract_memories_async(user_id: str, user_text: str, assistant_text: s
         logger.warning(f"Memory extraction failed: {e}")
 
 
+async def _prepare_chat(user: User, req: ChatRequest):
+    """Resolve/create the conversation, persist the user message, build the prompt."""
+    conv_id = req.conversation_id
+    if conv_id:
+        conv = await db.conversations.find_one({"id": conv_id, "user_id": user.user_id}, {"_id": 0})
+        if not conv:
+            raise HTTPException(404, "Conversation not found")
+    else:
+        conv = Conversation(user_id=user.user_id).model_dump()
+        await db.conversations.insert_one(conv)
+        conv_id = conv["id"]
+
+    user_msg = Message(user_id=user.user_id, conversation_id=conv_id, role="user", content=req.message)
+    await db.messages.insert_one(user_msg.model_dump())
+
+    history = await get_chat_history(user.user_id, conv_id)
+    system_prompt = await build_system_prompt(user)
+
+    # Fold the real prior turns into the system prompt — one LLM call per message, no replay
+    prior = [m for m in history if m["id"] != user_msg.id]
+    if prior:
+        transcript = "\n\n".join(
+            f"{'User' if m['role'] == 'user' else 'Ember'}: {m['content']}" for m in prior
+        )
+        system_prompt += f"\n\n--- This conversation so far ---\n{transcript}"
+
+    return conv, conv_id, user_msg, system_prompt
+
+
+async def _update_conv_title(conv: dict, conv_id: str, user: User, message: str):
+    updates = {"updated_at": now_iso()}
+    if conv.get("title") == "New conversation":
+        title = message.strip().split("\n")[0][:60]
+        if len(message) > 60:
+            title += "..."
+        updates["title"] = title or "New conversation"
+    await db.conversations.update_one({"id": conv_id, "user_id": user.user_id}, {"$set": updates})
+
+
 # ---------- Auth Routes ----------
 @api_router.post("/auth/session")
-async def auth_session(body: SessionExchangeRequest, response: Response):
+async def auth_session(body: SessionExchangeRequest, request: Request, response: Response):
     """Exchange Emergent session_id for our session_token cookie."""
+    if not _origin_allowed(request):
+        raise HTTPException(status_code=403, detail="Forbidden origin")
     async with httpx.AsyncClient(timeout=15.0) as http:
         try:
             r = await http.get(EMERGENT_AUTH_SESSION_URL, headers={"X-Session-ID": body.session_id})
@@ -333,6 +407,8 @@ async def auth_me(user: User = Depends(get_user_from_request)):
 
 @api_router.post("/auth/logout")
 async def auth_logout(request: Request, response: Response, authorization: Optional[str] = Header(None)):
+    if not _origin_allowed(request):
+        raise HTTPException(status_code=403, detail="Forbidden origin")
     token = request.cookies.get("session_token")
     if not token and authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
@@ -346,6 +422,11 @@ async def auth_logout(request: Request, response: Response, authorization: Optio
 @api_router.get("/")
 async def root():
     return {"message": "Ember is here.", "model": MODEL_NAME}
+
+
+@api_router.get("/health")
+async def health():
+    return {"status": "ok", "model": MODEL_NAME}
 
 
 # Conversations
@@ -398,29 +479,7 @@ async def get_messages(conv_id: str, user: User = Depends(get_user_from_request)
 # Chat
 @api_router.post("/chat")
 async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
-    conv_id = req.conversation_id
-    if conv_id:
-        conv = await db.conversations.find_one({"id": conv_id, "user_id": user.user_id}, {"_id": 0})
-        if not conv:
-            raise HTTPException(404, "Conversation not found")
-    else:
-        conv = Conversation(user_id=user.user_id).model_dump()
-        await db.conversations.insert_one(conv)
-        conv_id = conv["id"]
-
-    user_msg = Message(user_id=user.user_id, conversation_id=conv_id, role="user", content=req.message)
-    await db.messages.insert_one(user_msg.model_dump())
-
-    history = await get_chat_history(user.user_id, conv_id)
-    system_prompt = await build_system_prompt(user)
-
-    # Fold the real prior turns into the system prompt — one LLM call per message, no replay
-    prior = [m for m in history if m["id"] != user_msg.id]
-    if prior:
-        transcript = "\n\n".join(
-            f"{'User' if m['role'] == 'user' else 'Ember'}: {m['content']}" for m in prior
-        )
-        system_prompt += f"\n\n--- This conversation so far ---\n{transcript}"
+    conv, conv_id, user_msg, system_prompt = await _prepare_chat(user, req)
 
     try:
         response_text = await ollama_chat(system_prompt, req.message)
@@ -431,13 +490,7 @@ async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
     assistant_msg = Message(user_id=user.user_id, conversation_id=conv_id, role="assistant", content=response_text)
     await db.messages.insert_one(assistant_msg.model_dump())
 
-    updates = {"updated_at": now_iso()}
-    if conv.get("title") == "New conversation":
-        title = req.message.strip().split("\n")[0][:60]
-        if len(req.message) > 60:
-            title += "..."
-        updates["title"] = title or "New conversation"
-    await db.conversations.update_one({"id": conv_id, "user_id": user.user_id}, {"$set": updates})
+    await _update_conv_title(conv, conv_id, user, req.message)
 
     _schedule(extract_memories_async(user.user_id, req.message, response_text))
 
@@ -446,6 +499,61 @@ async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
         "user_message": user_msg.model_dump(),
         "assistant_message": assistant_msg.model_dump(),
     }
+
+
+@api_router.post("/chat/stream")
+async def chat_stream(req: ChatRequest, user: User = Depends(get_user_from_request)):
+    """SSE streaming chat. Events: start, message (delta), done, error."""
+    conv, conv_id, user_msg, system_prompt = await _prepare_chat(user, req)
+
+    async def event_stream():
+        yield _sse("start", {"conversation_id": conv_id, "user_message": user_msg.model_dump()})
+        chunks: List[str] = []
+        try:
+            async with httpx.AsyncClient(timeout=180.0) as http:
+                async with http.stream(
+                    "POST",
+                    f"{OLLAMA_URL}/api/chat",
+                    json={
+                        "model": MODEL_NAME,
+                        "stream": True,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": req.message},
+                        ],
+                    },
+                ) as r:
+                    r.raise_for_status()
+                    async for line in r.aiter_lines():
+                        if not line.strip():
+                            continue
+                        data = json.loads(line)
+                        piece = data.get("message", {}).get("content", "")
+                        if piece:
+                            chunks.append(piece)
+                            yield _sse("message", {"delta": piece})
+                        if data.get("done"):
+                            break
+        except Exception as e:
+            logger.error(f"LLM streaming error: {e}")
+            yield _sse("error", {"detail": f"LLM call failed: {str(e)}"})
+            return
+
+        response_text = "".join(chunks)
+        assistant_msg = Message(user_id=user.user_id, conversation_id=conv_id, role="assistant", content=response_text)
+        await db.messages.insert_one(assistant_msg.model_dump())
+
+        await _update_conv_title(conv, conv_id, user, req.message)
+
+        _schedule(extract_memories_async(user.user_id, req.message, response_text))
+
+        yield _sse("done", {"assistant_message": assistant_msg.model_dump()})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # Memory
@@ -514,7 +622,11 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_origins=[
+        o.strip()
+        for o in os.environ.get("CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",")
+        if o.strip()
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )

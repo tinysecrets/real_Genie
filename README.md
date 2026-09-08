@@ -26,7 +26,7 @@ An honest AI companion — not a script. Ember remembers you, pushes back when y
 cd backend
 pip install -r ../requirements.txt
 cp .env.example .env   # review values
-uvicorn server:app --reload --port 8001
+uvicorn backend.server:app --reload --port 8000
 ```
 
 `server.py` loads `.env` from the `backend/` directory. Minimum required variables:
@@ -57,10 +57,10 @@ ollama serve
 ```bash
 cd frontend
 yarn install
-REACT_APP_BACKEND_URL=http://localhost:8001 yarn start
+REACT_APP_BACKEND_URL=http://localhost:8000 yarn start
 ```
 
-Set `REACT_APP_BACKEND_URL` in `frontend/.env.local` (e.g. `REACT_APP_BACKEND_URL=http://localhost:8001`) — the frontend prefixes all API calls with `${REACT_APP_BACKEND_URL}/api`.
+Set `REACT_APP_BACKEND_URL` in `frontend/.env.local` (e.g. `REACT_APP_BACKEND_URL=http://localhost:8000`) — the frontend prefixes all API calls with `${REACT_APP_BACKEND_URL}/api`. On localhost it defaults to `http://localhost:8000`, so this is optional for local dev.
 
 ## API Overview
 
@@ -71,18 +71,26 @@ All routes are prefixed with `/api` and require auth (cookie `session_token` or 
 | POST   | `/auth/session`                 | Exchange OAuth session for a token |
 | GET    | `/auth/me`                      | Current user                     |
 | POST   | `/auth/logout`                  | Invalidate session + clear cookie |
-| POST   | `/chat`                         | Send a message (LLM)             |
+| POST   | `/chat`                         | Send a message (request/response LLM) |
+| POST   | `/chat/stream`                  | Send a message (SSE streaming LLM response) |
 | GET/POST/PATCH/DELETE | `/conversations[/id]` | Conversation CRUD            |
 | GET    | `/conversations/{id}/messages`  | Message history                  |
 | GET/POST/PATCH/DELETE | `/memory[/id]`        | Long-term memory CRUD            |
 | GET/PUT| `/settings/persona`             | Custom persona                   |
-| GET    | `/`                             | Health check (model name)        |
+| GET    | `/`                             | Root banner (model name)          |
+| GET    | `/health`                       | Health check: `{"status":"ok"}`   |
+
+> CSRF: mutating auth endpoints (`/auth/session`, `/auth/logout`) reject requests whose
+> `Origin` is not in `CORS_ORIGINS` (`backend/.env`, default `http://localhost:3000,http://127.0.0.1:3000`) or the same host.
 
 ## Testing
 
 ```bash
-cd backend
-pytest tests/test_ember_auth_api.py --maxfail=1
+# Unit tests (no live Mongo/Ollama needed)
+pytest
+
+# End-to-end suites (require a live backend, MongoDB, and Ollama)
+pytest backend/tests/test_ember_auth_api.py --maxfail=1
 ```
 
 > The end-to-end pytest suites hit a live backend and MongoDB. Point `REACT_APP_BACKEND_URL` at the running server before running them.
