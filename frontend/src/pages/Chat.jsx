@@ -440,7 +440,17 @@ export default function Chat({ user, onLogout }) {
     loadPersona();
   }, [loadConversations, loadMemories, loadPersona]);
 
-  useEffect(() => { loadMessages(currentId); }, [currentId, loadMessages]);
+  // Don't let the auto-fetch clobber a send in flight — sendMessage manually
+  // appends the persisted messages and the fetch would race it (duplicate AI
+  // message + full answer flashing before the stream reveal finishes).
+  const skipNextLoad = useRef(false);
+  useEffect(() => {
+    if (skipNextLoad.current) {
+      skipNextLoad.current = false;
+      return;
+    }
+    loadMessages(currentId);
+  }, [currentId, loadMessages]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -501,7 +511,10 @@ export default function Chat({ user, onLogout }) {
         message: text,
       });
       const newConvId = data.conversation_id;
-      if (!currentId) setCurrentId(newConvId);
+      if (!currentId) {
+        skipNextLoad.current = true;
+        setCurrentId(newConvId);
+      }
 
       // Replace temp user message with real one
       setMessages((m) => {
@@ -509,9 +522,12 @@ export default function Chat({ user, onLogout }) {
         return [...without, data.user_message];
       });
 
-      // Stream reveal the assistant message
+      // Stream reveal the assistant message (dedupe by id just in case)
       await streamReveal(data.assistant_message.id, data.assistant_message.content);
-      setMessages((m) => [...m, data.assistant_message]);
+      setMessages((m) => {
+        if (m.some((x) => x.id === data.assistant_message.id)) return m;
+        return [...m, data.assistant_message];
+      });
 
       loadConversations();
       setTimeout(loadMemories, 2500);

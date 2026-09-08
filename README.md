@@ -1,22 +1,95 @@
-# Here are your Instructions
-# 1. Install Ollama (once) — https://ollama.com/download
+# Ember
 
-# 2. Load his Dolphin GGUF into Ollama. In a folder with his
-#    Dolphin3.0-Llama3.1-8B-Q4_K_S.gguf file, make a file called "Modelfile":
-FROM ./Dolphin3.0-Llama3.1-8B-Q4_K_S.gguf
+An honest AI companion — not a script. Ember remembers you, pushes back when you're wrong, admits uncertainty, and skips the sycophancy. Built on a local [Ollama](https://ollama.com) model with a FastAPI + MongoDB backend and a warm, editorial React frontend.
 
-# 3. Register it with the name "dolphin3" (must match OLLAMA_MODEL in .env):
-ollama create dolphin3 -f Modelfile
+## Architecture
 
-# 4. Make sure Ollama is running:
-ollama serve
+| Layer      | Stack                                                        |
+| ---------- | ------------------------------------------------------------ |
+| Frontend   | React 19, Tailwind CSS, react-markdown, CRACO (Create React App) |
+| Backend    | FastAPI, Motor (async MongoDB), httpx                        |
+| LLM        | Local Ollama (`/api/chat`), inferred from `.env`             |
+| Database   | MongoDB collections: `users`, `user_sessions`, `conversations`, `messages`, `memories`, `user_settings` |
 
-# 5. Start MongoDB, then start the backend:
+## Prerequisites
+
+- Python 3.11+
+- Node.js 18+ / Yarn 1.x
+- [Ollama](https://ollama.com/download) running locally
+- MongoDB running locally (or a MONGO_URL)
+
+## Setup
+
+### 1. Backend
+
+```bash
 cd backend
-pip install -r requirements.txt
+pip install -r ../requirements.txt
+cp .env.example .env   # review values
 uvicorn server:app --reload --port 8001
+```
 
-# 6. Start the frontend in a second terminal:
+`server.py` loads `.env` from the `backend/` directory. Minimum required variables:
+
+| Variable      | Default                   | Purpose                              |
+| ------------- | ------------------------- | ------------------------------------ |
+| `MONGO_URL`   | *(required)*              | MongoDB connection string            |
+| `DB_NAME`     | `ember`                   | Database name                        |
+| `CORS_ORIGINS`| `*`                       | Comma-separated allowed origins      |
+| `OLLAMA_URL`  | `http://localhost:11434`  | Local Ollama endpoint                |
+| `OLLAMA_MODEL`| `dolphin3`                | Ollama model name                    |
+
+### 2. Register the Ollama model
+
+Create a `Modelfile` in a folder with your GGUF and register it under the name matching `OLLAMA_MODEL` (default `dolphin3`):
+
+```
+FROM ./Dolphin3.0-Llama3.1-8B-Q4_K_S.gguf
+```
+
+```bash
+ollama create dolphin3 -f Modelfile
+ollama serve
+```
+
+### 3. Frontend
+
+```bash
 cd frontend
 yarn install
-yarn start
+REACT_APP_BACKEND_URL=http://localhost:8001 yarn start
+```
+
+Set `REACT_APP_BACKEND_URL` in `frontend/.env.local` (e.g. `REACT_APP_BACKEND_URL=http://localhost:8001`) — the frontend prefixes all API calls with `${REACT_APP_BACKEND_URL}/api`.
+
+## API Overview
+
+All routes are prefixed with `/api` and require auth (cookie `session_token` or `Authorization: Bearer ...`):
+
+| Method | Path                            | Purpose                          |
+| ------ | ------------------------------- | -------------------------------- |
+| POST   | `/auth/session`                 | Exchange OAuth session for a token |
+| GET    | `/auth/me`                      | Current user                     |
+| POST   | `/auth/logout`                  | Invalidate session + clear cookie |
+| POST   | `/chat`                         | Send a message (LLM)             |
+| GET/POST/PATCH/DELETE | `/conversations[/id]` | Conversation CRUD            |
+| GET    | `/conversations/{id}/messages`  | Message history                  |
+| GET/POST/PATCH/DELETE | `/memory[/id]`        | Long-term memory CRUD            |
+| GET/PUT| `/settings/persona`             | Custom persona                   |
+| GET    | `/`                             | Health check (model name)        |
+
+## Testing
+
+```bash
+cd backend
+pytest tests/test_ember_auth_api.py --maxfail=1
+```
+
+> The end-to-end pytest suites hit a live backend and MongoDB. Point `REACT_APP_BACKEND_URL` at the running server before running them.
+
+## Deployment
+
+- **Docker / Fly**: `Dockerfile` builds the FastAPI app and runs `uvicorn backend.server:app` on port `8080`.
+- **Render / Heroku**: `Procfile` runs `uvicorn backend.server:app --host 0.0.0.0 --port $PORT`.
+
+Deployment images must include Ollama (or set `OLLAMA_URL` to an accessible instance) — Ember generates responses against a local model, not a hosted LLM API.

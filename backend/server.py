@@ -1,37 +1,45 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Cookie, Header
-from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
-import json
+"""Ember — a real AI companion backend.
+
+FastAPI + Motor (async MongoDB) server backed by a local Ollama model.
+Provides chat, long-term memory, conversation management, auth, and persona APIs.
+"""
+
 import asyncio
-import httpx
-from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import List, Optional
+import json
+import logging
+import os
 import uuid
-from datetime import datetime, timezone, timedelta
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import List, Optional
 
+import httpx
+from dotenv import load_dotenv
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request, Response
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, Field
+from starlette.middleware.cors import CORSMiddleware
 
-
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+ROOT_DIR = Path(__file__).resolve().parent
+load_dotenv(ROOT_DIR / ".env")
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+MONGO_URL = os.environ.get("MONGO_URL")
+if not MONGO_URL:
+    raise RuntimeError("MONGO_URL is not set. Add it to backend/.env")
 
-EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY')  # kept for backwards compat, unused with Ollama
-OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
-MODEL_NAME = os.environ.get('OLLAMA_MODEL', 'dolphin3')
+DB_NAME = os.environ.get("DB_NAME", "ember")
+client = AsyncIOMotorClient(MONGO_URL)
+db = client[DB_NAME]
+
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+MODEL_NAME = os.environ.get("OLLAMA_MODEL", "dolphin3")
 
 EMERGENT_AUTH_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 SESSION_DAYS = 7
@@ -41,7 +49,14 @@ DEFAULT_PERSONA = (
     "admits uncertainty plainly, respects the user's time."
 )
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    client.close()
+
+
+app = FastAPI(lifespan=lifespan)
 api_router = APIRouter(prefix="/api")
 
 
@@ -58,8 +73,8 @@ class Conversation(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
     title: str = "New conversation"
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: now_iso())
+    updated_at: str = Field(default_factory=lambda: now_iso())
 
 
 class Message(BaseModel):
@@ -68,14 +83,14 @@ class Message(BaseModel):
     conversation_id: str
     role: str
     content: str
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: now_iso())
 
 
 class Memory(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
     content: str
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: now_iso())
 
 
 class ChatRequest(BaseModel):
@@ -104,11 +119,22 @@ class PersonaUpdate(BaseModel):
 
 
 # ---------- Helpers ----------
+_background_tasks: set[asyncio.Task] = set()  # hold refs so tasks aren't GC'd
+
+
+def _schedule(coro):
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def get_user_from_request(request: Request, authorization: Optional[str] = Header(None)) -> User:
+async def get_user_from_request(
+    request: Request, authorization: Optional[str] = Header(None)
+) -> User:
     """Authenticator: cookie first, then Authorization Bearer header."""
     token: Optional[str] = request.cookies.get("session_token")
     if not token and authorization and authorization.lower().startswith("bearer "):
@@ -208,16 +234,16 @@ async def extract_memories_async(user_id: str, user_text: str, assistant_text: s
         response = await ollama_chat(system, prompt)
 
         text = response.strip()
-        start = text.find('[')
-        end = text.rfind(']')
+        start = text.find("[")
+        end = text.rfind("]")
         if start == -1 or end == -1:
             return
-        arr = json.loads(text[start:end + 1])
+        arr = json.loads(text[start : end + 1])
         if not isinstance(arr, list):
             return
 
         existing = await db.memories.find({"user_id": user_id}, {"_id": 0, "content": 1}).to_list(1000)
-        existing_set = {e['content'].lower().strip() for e in existing}
+        existing_set = {e["content"].lower().strip() for e in existing}
 
         for fact in arr:
             if not isinstance(fact, str):
@@ -232,6 +258,7 @@ async def extract_memories_async(user_id: str, user_text: str, assistant_text: s
             existing_set.add(fact.lower())
     except Exception as e:
         logger.warning(f"Memory extraction failed: {e}")
+
 
 # ---------- Auth Routes ----------
 @api_router.post("/auth/session")
@@ -263,22 +290,26 @@ async def auth_session(body: SessionExchangeRequest, response: Response):
         )
     else:
         user_id = f"user_{uuid.uuid4().hex[:12]}"
-        await db.users.insert_one({
-            "user_id": user_id,
-            "email": email,
-            "name": name,
-            "picture": picture,
-            "created_at": now_iso(),
-        })
+        await db.users.insert_one(
+            {
+                "user_id": user_id,
+                "email": email,
+                "name": name,
+                "picture": picture,
+                "created_at": now_iso(),
+            }
+        )
 
     # Save session
     expires_at = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
-    await db.user_sessions.insert_one({
-        "user_id": user_id,
-        "session_token": session_token,
-        "expires_at": expires_at,
-        "created_at": datetime.now(timezone.utc),
-    })
+    await db.user_sessions.insert_one(
+        {
+            "user_id": user_id,
+            "session_token": session_token,
+            "expires_at": expires_at,
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
 
     # Set cookie
     response.set_cookie(
@@ -365,172 +396,6 @@ async def get_messages(conv_id: str, user: User = Depends(get_user_from_request)
 
 
 # Chat
-FIND this whole function in backend/server.py and SELECT IT ALL:
-async def extract_memories_async(user_id: str, user_text: str, assistant_text: str):
-    try:
-        extractor = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"memory-extractor-{uuid.uuid4()}",
-            system_message=(
-                "You extract durable facts about a user from a single exchange. "
-                "Return ONLY a JSON array of short fact strings (max 12 words each). "
-                "Facts must be about the USER (preferences, identity, projects, relationships, goals, habits). "
-                "Not about the assistant. Not about general topics. "
-                'If nothing worth remembering, return []. '
-                'Examples: ["Prefers concise answers", "Works as a nurse in Seattle", "Has a dog named Moss"]. '
-                "Never invent. Only extract what's stated or strongly implied."
-            ),
-        ).with_model("anthropic", "claude-haiku-4-5-20251001")
-
-        prompt = f"User said: {user_text}\n\nAssistant replied: {assistant_text}\n\nExtract user facts as JSON array."
-        response = await extractor.send_message(UserMessage(text=prompt))
-
-        text = response.strip()
-        start = text.find('[')
-        end = text.rfind(']')
-        if start == -1 or end == -1:
-            return
-        arr = json.loads(text[start:end + 1])
-        if not isinstance(arr, list):
-            return
-
-        existing = await db.memories.find({"user_id": user_id}, {"_id": 0, "content": 1}).to_list(1000)
-        existing_set = {e['content'].lower().strip() for e in existing}
-
-        for fact in arr:
-            if not isinstance(fact, str):
-                continue
-            fact = fact.strip()
-            if not fact or len(fact) > 200:
-                continue
-            if fact.lower() in existing_set:
-                continue
-            mem = Memory(user_id=user_id, content=fact)
-            await db.memories.insert_one(mem.model_dump())
-            existing_set.add(fact.lower())
-    except Exception as e:
-        logger.warning(f"Memory extraction failed: {e}")
-REPLACE the whole selection with this (it now starts with a new ollama_chat helper, then the same memory extractor rewritten to call it):
-async def ollama_chat(system: str, user_text: str) -> str:
-    """Single-turn call to local Ollama. Returns the assistant's text."""
-    async with httpx.AsyncClient(timeout=180.0) as http:
-        r = await http.post(
-            f"{OLLAMA_URL}/api/chat",
-            json={
-                "model": MODEL_NAME,
-                "stream": False,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user_text},
-                ],
-            },
-        )
-        r.raise_for_status()
-        data = r.json()
-        return data.get("message", {}).get("content", "")
-
-
-async def extract_memories_async(user_id: str, user_text: str, assistant_text: str):
-    try:
-        system = (
-            "You extract durable facts about a user from a single exchange. "
-            "Return ONLY a JSON array of short fact strings (max 12 words each). "
-            "Facts must be about the USER (preferences, identity, projects, relationships, goals, habits). "
-            "Not about the assistant. Not about general topics. "
-            'If nothing worth remembering, return []. '
-            'Examples: ["Prefers concise answers", "Works as a nurse in Seattle", "Has a dog named Moss"]. '
-            "Never invent. Only extract what's stated or strongly implied."
-        )
-        prompt = f"User said: {user_text}\n\nAssistant replied: {assistant_text}\n\nExtract user facts as JSON array."
-        response = await ollama_chat(system, prompt)
-
-        text = response.strip()
-        start = text.find('[')
-        end = text.rfind(']')
-        if start == -1 or end == -1:
-            return
-        arr = json.loads(text[start:end + 1])
-        if not isinstance(arr, list):
-            return
-
-        existing = await db.memories.find({"user_id": user_id}, {"_id": 0, "content": 1}).to_list(1000)
-        existing_set = {e['content'].lower().strip() for e in existing}
-
-        for fact in arr:
-            if not isinstance(fact, str):
-                continue
-            fact = fact.strip()
-            if not fact or len(fact) > 200:
-                continue
-            if fact.lower() in existing_set:
-                continue
-            mem = Memory(user_id=user_id, content=fact)
-            await db.memories.insert_one(mem.model_dump())
-            existing_set.add(fact.lower())
-    except Exception as e:
-        logger.warning(f"Memory extraction failed: {e}")
-E — /api/chat endpoint
-FIND this whole function in backend/server.py and SELECT IT ALL:
-# Chat
-@api_router.post("/chat")
-async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(500, "LLM key not configured")
-
-    conv_id = req.conversation_id
-    if conv_id:
-        conv = await db.conversations.find_one({"id": conv_id, "user_id": user.user_id}, {"_id": 0})
-        if not conv:
-            raise HTTPException(404, "Conversation not found")
-    else:
-        conv = Conversation(user_id=user.user_id).model_dump()
-        await db.conversations.insert_one(conv)
-        conv_id = conv["id"]
-
-    user_msg = Message(user_id=user.user_id, conversation_id=conv_id, role="user", content=req.message)
-    await db.messages.insert_one(user_msg.model_dump())
-
-    history = await get_chat_history(user.user_id, conv_id)
-    system_prompt = await build_system_prompt(user)
-
-    chat_client = LlmChat(
-        api_key=EMERGENT_LLM_KEY,
-        session_id=f"{conv_id}-{uuid.uuid4().hex[:8]}",  # fresh session per call
-        system_message=system_prompt,
-    ).with_model(MODEL_PROVIDER, MODEL_NAME)
-
-    # Replay prior turns (excluding the just-stored user message)
-    prior = [m for m in history if m["id"] != user_msg.id]
-    for m in prior:
-        if m["role"] == "user":
-            await chat_client.send_message(UserMessage(text=m["content"]))
-
-    try:
-        response_text = await chat_client.send_message(UserMessage(text=req.message))
-    except Exception as e:
-        logger.error(f"LLM error: {e}")
-        raise HTTPException(500, f"LLM call failed: {str(e)}")
-
-    assistant_msg = Message(user_id=user.user_id, conversation_id=conv_id, role="assistant", content=response_text)
-    await db.messages.insert_one(assistant_msg.model_dump())
-
-    updates = {"updated_at": now_iso()}
-    if conv.get("title") == "New conversation":
-        title = req.message.strip().split("\n")[0][:60]
-        if len(req.message) > 60:
-            title += "..."
-        updates["title"] = title or "New conversation"
-    await db.conversations.update_one({"id": conv_id, "user_id": user.user_id}, {"$set": updates})
-
-    asyncio.create_task(extract_memories_async(user.user_id, req.message, response_text))
-
-    return {
-        "conversation_id": conv_id,
-        "user_message": user_msg.model_dump(),
-        "assistant_message": assistant_msg.model_dump(),
-    }
-REPLACE the whole selection with this:
-# Chat
 @api_router.post("/chat")
 async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
     conv_id = req.conversation_id
@@ -574,7 +439,7 @@ async def chat(req: ChatRequest, user: User = Depends(get_user_from_request)):
         updates["title"] = title or "New conversation"
     await db.conversations.update_one({"id": conv_id, "user_id": user.user_id}, {"$set": updates})
 
-    asyncio.create_task(extract_memories_async(user.user_id, req.message, response_text))
+    _schedule(extract_memories_async(user.user_id, req.message, response_text))
 
     return {
         "conversation_id": conv_id,
@@ -637,7 +502,7 @@ async def update_persona(body: PersonaUpdate, user: User = Depends(get_user_from
         raise HTTPException(400, "Persona too long (max 1000 chars)")
     await db.user_settings.update_one(
         {"user_id": user.user_id},
-        {"$set": {"user_id": user.user_id, "persona": persona, "updated_at": now_iso()}},
+        {"$set": {"persona": persona, "updated_at": now_iso()}},
         upsert=True,
     )
     return {"persona": persona}
@@ -649,12 +514,7 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()

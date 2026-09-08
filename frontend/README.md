@@ -1,70 +1,48 @@
-# Getting Started with Create React App
+# Ember — Frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+React 19 single-page app for the Ember AI companion: a warm, editorial 3-column chat layout with a persistent memory panel and an N-gram persona editor.
 
-## Available Scripts
+## Tech
 
-In the project directory, you can run:
+- React 19 + Create React App (via CRACO)
+- Tailwind CSS + shadcn/ui components
+- react-markdown + remark-gfm for AI responses
+- React Router, Axios, lucide-react
 
-### `npm start`
+## Scripts
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+```bash
+yarn start      # dev server (port 3000)
+yarn build      # production build to /build
+yarn test       # test runner
+```
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Environment
 
-### `npm test`
+Create `.env.local` in `frontend/`:
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+```
+REACT_APP_BACKEND_URL=http://localhost:8001
+```
 
-### `npm run build`
+All API calls go to `${REACT_APP_BACKEND_URL}/api`.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+PostHog analytics are **off by default**. To enable basic product analytics at
+build time, add `REACT_APP_POSTHOG_ENABLED=true` (optionally
+`REACT_APP_POSTHOG_KEY` / `REACT_APP_POSTHOG_HOST`). Session recording is never
+enabled, and nothing is ever sent from `localhost`.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Structure
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```
+src/
+  pages/          # Login, AuthCallback, Chat
+  components/     # SettingsDrawer + shadcn/ui primitives
+  lib/            # api.js (axios client), utils.js
+  hooks/          # use-toast
+  App.js          # routing + auth guard
+public/           # index.html, manifest, service worker
+plugins/          # optional webpack health-check plugin (enable via ENABLE_HEALTH_CHECK=true)
+```
 
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+See the repository root `README.md` for full setup instructions.

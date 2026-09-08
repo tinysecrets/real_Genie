@@ -158,14 +158,8 @@
                     }),
                     (e.__SV = 1));
             })(document, window.posthog || []);
-            posthog.init("phc_xAvL2Iq4tFmANRE7kzbKwaSqp1HJjN7x48s3vr0CMjs", {
-                api_host: "https://us.i.posthog.com",
-                person_profiles: "identified_only", // or 'always' to create profiles for anonymous users as well,
-                session_recording: {
-                    recordCrossOriginIframes: true,
-                    capturePerformance: false,
-                },
-            });
+            // PostHog is enabled at build time via REACT_APP_POSTHOG_ENABLED=true
+            // (see src/lib/analytics.js). Session recording is never enabled.
         </script>
     </body>
 </html>

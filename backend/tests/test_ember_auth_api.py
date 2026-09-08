@@ -95,7 +95,7 @@ class TestConversationsAndChat:
         assert r.status_code == 200
         assert any(x["id"] == TestConversationsAndChat.cid for x in r.json())
 
-    def test_chat_real_claude(self, s_a):
+    def test_chat_with_ollama(self, s_a):
         r = s_a.post(f"{API}/chat", json={
             "conversation_id": TestConversationsAndChat.cid,
             "message": "Say the word 'ember' back to me in one short sentence."

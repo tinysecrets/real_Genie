@@ -1,6 +1,6 @@
 """End-to-end backend tests for Ember API.
 
-Covers: health, conversations CRUD, chat (Claude Sonnet 4.5),
+Covers: health, conversations CRUD, chat (local Ollama),
 multi-turn memory, auto-titling, memory CRUD, auto-extraction.
 """
 import os
@@ -34,8 +34,7 @@ class TestHealth:
         r = session.get(f"{API}/")
         assert r.status_code == 200
         data = r.json()
-        assert "model" in data
-        assert "claude-sonnet-4-5" in data["model"]
+        assert "model" in data and isinstance(data["model"], str) and data["model"]
 
 
 # --- Conversations CRUD ---
